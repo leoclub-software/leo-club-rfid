@@ -1761,10 +1761,10 @@ function deleteUserFromFirebase(username) {
 let me = null;
 
 const ROLES = {
-  admin:  {label:'Admin',  tabs:['reception','counter','lookup','clients','members','courts','reports','admin','hotel','amenities','bonus','users','settings'], canDel:true,  canExp:true},
-  staff:  {label:'Staff',  tabs:['reception','counter','lookup','clients','courts','reports'], canDel:false, canExp:false},
-  lookup: {label:'Lookup', tabs:['lookup','clients','admin'],               canDel:false, canExp:false},
-  hotel:  {label:'Hotel',  tabs:['reception','hotel'],                      canDel:false, canExp:false},
+  admin:  {label:'Admin',  tabs:['reception','counter','lookup','clients','members','courts','reports','admin','hotel','amenities','bonus','users','settings'], canDel:true,  canExp:true,  canEditMembers:true},
+  staff:  {label:'Staff',  tabs:['reception','counter','lookup','clients','members','courts','reports'], canDel:false, canExp:false, canEditMembers:true},
+  lookup: {label:'Lookup', tabs:['lookup','clients','members','admin'],      canDel:false, canExp:false, canEditMembers:true},
+  hotel:  {label:'Hotel',  tabs:['reception','hotel'],                      canDel:false, canExp:false, canEditMembers:false},
 };
 
 function doLogin() {
@@ -6137,6 +6137,7 @@ function renderMembersList() {
     return;
   }
   const cfg = MEMBER_TYPES;
+  const canEdit = me && (ROLES[me.role]||{}).canEditMembers;
   tbody.innerHTML = list.map(m => {
     const tc  = cfg[m.type] || cfg.annual;
     const st  = memberStatus(m);
@@ -6167,6 +6168,7 @@ function renderMembersList() {
       <td style="padding:8px 10px;">${stBadge}</td>
       <td style="padding:8px 10px;">
         <button class="btn btn-cy btn-xs" onclick="openMemberDetail('${m.id}')">View</button>
+        ${canEdit ? `<button class="btn btn-go btn-xs" onclick="openEditMember('${m.id}')" style="margin-left:4px;">Edit</button>` : ''}
         <button class="btn btn-go btn-xs" onclick="topUpMemberCard('${m.id}')" style="margin-left:4px;">Top-Up</button>
       </td>
     </tr>`;
@@ -6373,6 +6375,7 @@ function renewMembership(id) {
 
 function editMember(id) {
   const m = members.find(x=>x.id===id); if(!m) return;
+  const isAdmin = me && me.role === 'admin';
   openM('✏️ Edit — '+m.name,
     `<div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;">
       <div><label class="f">Name</label><input type="text" id="ed-name" value="${m.name||''}" style="margin-bottom:0;"></div>
@@ -6391,29 +6394,36 @@ function editMember(id) {
       <div><label class="f">Nominee</label><input type="text" id="ed-nominee" value="${m.nominee||''}" style="margin-bottom:0;"></div>
       <div><label class="f">Photo URL</label><input type="text" id="ed-photo" value="${m.photo||''}" style="margin-bottom:0;"></div>
     </div>`,
-    [{label:'Save',cls:'btn-cy',fn:()=>{
-      m.name    = (document.getElementById('ed-name')||{}).value.trim()||m.name;
-      m.mobile  = (document.getElementById('ed-mobile')||{}).value.trim();
-      m.cardId  = (document.getElementById('ed-card')||{}).value.trim().toUpperCase()||m.cardId;
-      m.type    = (document.getElementById('ed-type')||{}).value;
-      m.joinDate= (document.getElementById('ed-join')||{}).value||m.joinDate;
-      m.dob     = (document.getElementById('ed-dob')||{}).value;
-      m.address = (document.getElementById('ed-addr')||{}).value.trim();
-      m.nominee = (document.getElementById('ed-nominee')||{}).value.trim();
-      m.photo   = (document.getElementById('ed-photo')||{}).value.trim();
-      lsSet(LS.members, members);
-      if(db&&syncOk) db.ref('members/'+m.id).set(m);
-      renderMembersList(); closeM(); toast('Member updated ✓');
-    }},{label:'Delete Member',cls:'btn-rd',fn:()=>{
-      if(!confirm('Delete '+m.name+'? This cannot be undone.')) return;
-      members = members.filter(x=>x.id!==id);
-      lsSet(LS.members, members);
-      if(db&&syncOk) db.ref('members/'+m.id).remove();
-      renderMembersList(); closeM(); toast('Member deleted');
-    }},{label:'Cancel',cls:'btn-gh',fn:closeM}],
+    [
+      {label:'Save',cls:'btn-cy',fn:()=>{
+        m.name    = (document.getElementById('ed-name')||{}).value.trim()||m.name;
+        m.mobile  = (document.getElementById('ed-mobile')||{}).value.trim();
+        m.cardId  = (document.getElementById('ed-card')||{}).value.trim().toUpperCase()||m.cardId;
+        m.type    = (document.getElementById('ed-type')||{}).value;
+        m.joinDate= (document.getElementById('ed-join')||{}).value||m.joinDate;
+        m.dob     = (document.getElementById('ed-dob')||{}).value;
+        m.address = (document.getElementById('ed-addr')||{}).value.trim();
+        m.nominee = (document.getElementById('ed-nominee')||{}).value.trim();
+        m.photo   = (document.getElementById('ed-photo')||{}).value.trim();
+        m.editedBy = me ? me.name : ''; m.editedAt = nowStr();
+        lsSet(LS.members, members);
+        if(db&&syncOk) db.ref('members/'+m.id).set(m);
+        renderMembersList(); closeM(); toast('Member updated ✓');
+      }},
+      ...(isAdmin ? [{label:'Delete Member',cls:'btn-rd',fn:()=>{
+        if(!confirm('Delete '+m.name+'? This cannot be undone.')) return;
+        members = members.filter(x=>x.id!==id);
+        lsSet(LS.members, members);
+        if(db&&syncOk) db.ref('members/'+m.id).remove();
+        renderMembersList(); closeM(); toast('Member deleted');
+      }}] : []),
+      {label:'Cancel',cls:'btn-gh',fn:closeM}
+    ],
     true
   );
 }
+// Alias used by table Edit button
+function openEditMember(id) { editMember(id); }
 
 // ── Member discounts applied at charging time ──────────────────
 

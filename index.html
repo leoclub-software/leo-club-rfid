@@ -666,6 +666,7 @@ select option{background:#fff;color:var(--tx);}
               <div style="font-size:0.68rem;color:var(--mu);font-weight:700;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">💰 Total Revenue</div>
               <div id="kpi-revenue" style="font-size:1.7rem;font-weight:800;color:var(--cy);font-family:'JetBrains Mono',monospace;">₹0</div>
               <div style="font-size:0.65rem;color:var(--mu);margin-top:4px;" id="kpi-txns-sub">0 transactions</div>
+              <div id="kpi-pm-breakdown" style="font-size:0.68rem;margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;line-height:1.8;"></div>
             </div>
             <!-- Counter revenue breakdown -->
             <div class="card" style="padding:12px 14px;">
@@ -2576,8 +2577,8 @@ function buildBowlingHtml(am) {
           <input type="number" id="bowl-disc-val" placeholder="Enter value" min="0" oninput="calcBowl()" style="max-width:140px;">
           <span class="disc-preview" id="bowl-disc-preview"></span>
         </div>
-        <label class="f" style="margin-top:4px;">Reference / Reason <span style="color:#ef4444;">*</span></label>
-        <input type="text" id="bowl-ref" class="ref-required" placeholder="e.g. Manager approval, Birthday, Staff — required" style="margin-bottom:0;">
+        <label class="f" style="margin-top:4px;">Reference / Reason <span style="color:var(--mu);font-weight:400;font-size:0.7rem;">(required only when discount applied)</span></label>
+        <input type="text" id="bowl-ref" placeholder="e.g. Manager approval, Birthday, Staff" style="margin-bottom:0;">
       </div>
       <button class="btn btn-cy btn-fw" id="bowl-charge-btn" onclick="chargeBowling()">Charge via RFID</button>
     </div>
@@ -2643,8 +2644,8 @@ function buildGZHtml(am) {
           <input type="number" id="gz-disc-val" placeholder="Enter value" min="0" oninput="calcTokens()" style="max-width:140px;">
           <span class="disc-preview" id="gz-disc-preview"></span>
         </div>
-        <label class="f" style="margin-top:4px;">Reference / Reason <span style="color:#ef4444;">*</span></label>
-        <input type="text" id="gz-ref" class="ref-required" placeholder="e.g. Manager approval, Birthday, Staff — required" style="margin-bottom:0;">
+        <label class="f" style="margin-top:4px;">Reference / Reason <span style="color:var(--mu);font-weight:400;font-size:0.7rem;">(required only when discount applied)</span></label>
+        <input type="text" id="gz-ref" placeholder="e.g. Manager approval, Birthday, Staff" style="margin-bottom:0;">
       </div>
       <button class="btn btn-go btn-fw" onclick="chargeGZCustom()">Charge Custom Amount</button>
     </div>
@@ -2706,8 +2707,8 @@ function buildFoodHtml(am) {
               <input type="number" id="food-disc-val" placeholder="Enter value" min="0" oninput="renderBill()" style="max-width:140px;">
               <span class="disc-preview" id="food-disc-preview"></span>
             </div>
-            <label class="f" style="margin-top:4px;">Reference / Reason <span style="color:#ef4444;">*</span></label>
-            <input type="text" id="food-ref" class="ref-required" placeholder="e.g. Manager approval, Complaint, Staff — required" style="margin-bottom:0;">
+            <label class="f" style="margin-top:4px;">Reference / Reason <span style="color:var(--mu);font-weight:400;font-size:0.7rem;">(required only when discount applied)</span></label>
+            <input type="text" id="food-ref" placeholder="e.g. Manager approval, Complaint, Staff" style="margin-bottom:0;">
           </div>
           <div style="display:flex;gap:7px;margin-top:11px;">
             <button class="btn btn-rd btn-sm" onclick="clearBill()">Clear</button>
@@ -2795,12 +2796,14 @@ function getRef(fieldId) {
   return ((document.getElementById(fieldId)||{}).value||'').trim();
 }
 
-function requireRef(fieldId) {
+function requireRef(fieldId, discountActive) {
+  // Reference is only required when a discount is being applied
+  if (!discountActive) return true;
   const ref = getRef(fieldId);
   if (!ref) {
     const el = document.getElementById(fieldId);
     if(el){ el.style.border='2px solid #ef4444'; el.focus(); setTimeout(()=>el.style.border='',2000); }
-    toast('Reference / reason is required ✱', true);
+    toast('Reference / reason is required when applying a discount ✱', true);
     return false;
   }
   return true;
@@ -2884,13 +2887,13 @@ function calcBowl() {
   } else { if(bdb)bdb.textContent='—'; if(bdc)bdc.textContent='—'; }
 }
 function chargeBowling() {
-  if (!requireRef('bowl-ref')) return;
-  const ref = getRef('bowl-ref');
   const p = parseInt(document.getElementById('bowl-p').value)||1;
   const g = parseInt(document.getElementById('bowl-g').value)||1;
   const rate2 = prices[bowlTier]||250;
   const rawTotal = p * g * rate2;
   const {final:total, discAmt} = applyDiscount(rawTotal, bowlDiscMode, 'bowl-disc-val', 'bowl-disc-preview');
+  if (!requireRef('bowl-ref', bowlDiscMode !== 'none')) return;
+  const ref = getRef('bowl-ref');
   const discNote = discAmt > 0 ? ' [disc −'+fmt(discAmt)+']' : '';
 
   // ── Walk-in Cash / UPI ──────────────────────────────────
@@ -3235,9 +3238,9 @@ function chargeFoodBill() {
 
   // ── Walk-in cash/UPI mode ──────────────────────────────
   if(foodPayMode !== 'rfid') {
-    if (!requireRef('food-ref')) return;
-    const ref = getRef('food-ref');
     const {final:chargeTotal, discAmt} = applyDiscount(rawTotal, foodDiscMode, 'food-disc-val', 'food-disc-preview');
+    if (!requireRef('food-ref', foodDiscMode !== 'none')) return;
+    const ref = getRef('food-ref');
     const desc = foodBill.map(b=>b.name+(b.qty>1?' x'+b.qty:'')).join(', ');
     const modeLabel = foodPayMode==='cash'?'💵 Cash':'📱 UPI';
     openM('Confirm '+modeLabel+' Sale',
@@ -3268,7 +3271,7 @@ function chargeFoodBill() {
   // ── RFID mode ──────────────────────────────────────────
   const card = zoneCards.food;
   if (!card) { toast('Tap a customer card first', true); return; }
-  if (!requireRef('food-ref')) return;
+  if (!requireRef('food-ref', foodDiscMode !== 'none')) return;
   const ref = getRef('food-ref');
   const disc3 = getMemberDiscount(card.rfid);
   const memberDisc = disc3.foodPct ? Math.round(rawTotal * disc3.foodPct / 100) : 0;
@@ -7074,6 +7077,7 @@ function classifyRfid(rfid, cardObj) {
   if (!rfid || rfid === 'WALKIN') return 'walkin';
   if (cardObj && cardObj.isGuest) return 'hotel';
   if (rfid && rfid.toUpperCase().startsWith('GZ')) return 'gz';
+  if (cardObj && cardObj.cardType === 'gz') return 'gz';
   return 'card';
 }
 
@@ -7100,6 +7104,15 @@ function renderTodaysSales() {
   const debitTxns  = txns.filter(t => t.type === 'debit' && txnMatchesFilter(t, filter));
   const creditTxns = txns.filter(t => t.type === 'credit' && t.counter === 'Reception' && txnMatchesFilter(t, filter));
 
+  // Walk-in txns = rfid is 'WALKIN' — actual cash/UPI collected at counter
+  const walkinDebitTxns = debitTxns.filter(t => t.rfid === 'WALKIN');
+  const rfidDebitTxns   = debitTxns.filter(t => t.rfid !== 'WALKIN');
+
+  const walkinCash  = walkinDebitTxns.filter(t => (t.payMethod||'cash') === 'cash').reduce((s,t) => s + (t.cashAmt||0), 0);
+  const walkinUPI   = walkinDebitTxns.filter(t => t.payMethod === 'upi').reduce((s,t) => s + (t.cashAmt||0), 0);
+  const rfidCash    = rfidDebitTxns.reduce((s,t) => s + (t.cashAmt||0), 0);
+  const rfidBonus   = rfidDebitTxns.reduce((s,t) => s + (t.bonusAmt||0), 0);
+
   const totalRevenue   = debitTxns.reduce((s,t) => s + (t.cashAmt||0) + (t.bonusAmt||0), 0);
   const totalCollected = creditTxns.reduce((s,t) => s + (t.cashAmt||0), 0);
 
@@ -7108,6 +7121,17 @@ function renderTodaysSales() {
   set('kpi-revenue', fmt(totalRevenue));
   set('dash-rev-preview', fmt(totalRevenue));
   set('kpi-txns-sub', debitTxns.length + ' transaction' + (debitTxns.length !== 1 ? 's' : ''));
+
+  // Payment mode breakdown under total
+  const pmBreak = document.getElementById('kpi-pm-breakdown');
+  if (pmBreak) {
+    const parts = [];
+    if (walkinCash > 0)  parts.push('<span style="color:#16a34a;">💵 Cash: <b>'+fmt(walkinCash)+'</b></span>');
+    if (walkinUPI > 0)   parts.push('<span style="color:#2563eb;">📱 UPI: <b>'+fmt(walkinUPI)+'</b></span>');
+    if (rfidCash > 0)    parts.push('<span style="color:#1a7a5e;">💳 RFID Cash: <b>'+fmt(rfidCash)+'</b></span>');
+    if (rfidBonus > 0)   parts.push('<span style="color:#d97706;">★ Bonus: <b>'+fmt(rfidBonus)+'</b></span>');
+    pmBreak.innerHTML = parts.length ? parts.join(' &nbsp;·&nbsp; ') : '';
+  }
 
   // ── Counter revenue bars ──
   const counterColors = {'Bowling':'#7c3aed','Game Zone':'#d97706','Food & Beverages':'#16a34a','Food':'#16a34a','Theatre':'#2563eb','Reception':'#1a7a5e'};
@@ -7375,12 +7399,12 @@ function _quickChargeBowling(card) {
     +'</div>'
     +'</div>',
     [{label:'⚡ Charge', cls:'btn-cy', fn:()=>{
-      if (!requireRef('qc-bowl-ref')) return;
       const p = parseInt(document.getElementById('qc-bowl-p').value)||1;
       const g2 = parseInt(document.getElementById('qc-bowl-g').value)||1;
-      const ref = getRef('qc-bowl-ref');
       const raw = p * g2 * effectiveRate;
       const {final:total, discAmt} = applyDiscount(raw, _qcBowlDiscMode, 'qc-bowl-dval', null);
+      if (!requireRef('qc-bowl-ref', _qcBowlDiscMode !== 'none')) return;
+      const ref = getRef('qc-bowl-ref');
       const {fromBonus, fromCash} = splitPay(card, total, true);
       if (fromCash > card.cashBalance) { toast('Insufficient balance!', true); return; }
       doChargeBowl(card, total, fromBonus, fromCash, p, g2,
@@ -7449,10 +7473,10 @@ function _quickChargeGZ(card) {
     +'</div>'
     +'</div>',
     [{label:'⚡ Charge', cls:'btn-go', fn:()=>{
-      if (!requireRef('qc-gz-ref')) return;
       const rawAmt = parseFloat((document.getElementById('qc-gz-amt')||{}).value)||0;
       if (!rawAmt) { toast('Enter amount', true); return; }
       const {final:amt, discAmt} = applyDiscount(rawAmt, _qcGZDiscMode, 'qc-gz-dval', null);
+      if (!requireRef('qc-gz-ref', _qcGZDiscMode !== 'none')) return;
       const tokens = Math.floor(amt / tokenPrice);
       const ref = getRef('qc-gz-ref');
       const {fromBonus, fromCash} = splitPay(card, amt, true);
@@ -7513,7 +7537,6 @@ function _quickChargeFood(card) {
     +'<input type="text" id="qc-food-ref" class="ref-required" placeholder="required">'
     +'</div>',
     [{label:'⚡ Charge', cls:'btn-mg', fn:()=>{
-      if (!requireRef('qc-food-ref')) return;
       const amt = parseFloat((document.getElementById('qc-food-amt')||{}).value)||0;
       if (!amt) { toast('Enter amount', true); return; }
       if (card.cashBalance < amt) { toast('Insufficient cash balance!', true); return; }
@@ -7534,11 +7557,10 @@ function _quickChargeGeneric(card, amId, amName) {
     +'<div style="font-size:0.72rem;color:var(--mu);margin-bottom:10px;">Cash: <b style="color:var(--cy);">'+fmt(card.cashBalance)+'</b> · Bonus: <b style="color:var(--go);">'+fmt(card.bonusBalance)+'</b></div>'
     +'<label class="f">Amount (₹)</label>'
     +'<input type="number" id="qc-gen-amt" value="'+(cfg.defaultAmt||'')+'" placeholder="Enter amount" min="0" style="font-size:1rem;margin-bottom:8px;">'
-    +'<label class="f">Reference <span style="color:#ef4444;">*</span></label>'
-    +'<input type="text" id="qc-gen-ref" class="ref-required" placeholder="required">'
+    +'<label class="f">Reference <span style="color:var(--mu);font-weight:400;">(optional)</span></label>'
+    +'<input type="text" id="qc-gen-ref" placeholder="e.g. Birthday, Staff" style="margin-bottom:0;">'
     +'</div>',
     [{label:'⚡ Charge', cls:'btn-cy', fn:()=>{
-      if (!requireRef('qc-gen-ref')) return;
       const amt = parseFloat((document.getElementById('qc-gen-amt')||{}).value)||0;
       if (!amt) { toast('Enter amount', true); return; }
       const ref = getRef('qc-gen-ref');
@@ -7547,7 +7569,7 @@ function _quickChargeGeneric(card, amId, amName) {
       if (fromCash > card.cashBalance) { toast('Insufficient balance!', true); return; }
       card.cashBalance -= fromCash; card.bonusBalance -= fromBonus; card.spent += amt;
       persist('cards');
-      addTxnRecord(card, amName, amName+' | Ref: '+ref, fromCash, fromBonus, 'debit');
+      addTxnRecord(card, amName, amName+(ref?' | Ref: '+ref:''), fromCash, fromBonus, 'debit');
       renderTodaysSales(); closeM();
       toast('✓ '+fmt(amt)+' charged for '+card.name);
     }},{label:'Back', cls:'btn-gh', fn:()=>quickChargeGuest(

@@ -660,13 +660,32 @@ select option{background:#fff;color:var(--tx);}
           <!-- Dashboard body (expanded by default) -->
           <div id="dash-body">
 
-          <!-- ── ROW 1: Total Revenue + Counter Breakdown ── -->
-          <div style="display:grid;grid-template-columns:220px 1fr;gap:10px;margin-bottom:10px;">
-            <div class="card" style="padding:16px 18px;display:flex;flex-direction:column;justify-content:center;">
-              <div style="font-size:0.68rem;color:var(--mu);font-weight:700;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">💰 Total Revenue</div>
-              <div id="kpi-revenue" style="font-size:1.7rem;font-weight:800;color:var(--cy);font-family:'JetBrains Mono',monospace;">₹0</div>
-              <div style="font-size:0.65rem;color:var(--mu);margin-top:4px;" id="kpi-txns-sub">0 transactions</div>
-              <div id="kpi-pm-breakdown" style="font-size:0.68rem;margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;line-height:1.8;"></div>
+          <!-- ── ROW 1: Daily Hisaab + Counter Breakdown ── -->
+          <div style="display:grid;grid-template-columns:240px 1fr;gap:10px;margin-bottom:10px;">
+            <div class="card" style="padding:14px 16px;display:flex;flex-direction:column;justify-content:center;">
+              <div style="font-size:0.65rem;color:var(--mu);font-weight:700;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:8px;">📋 Daily Hisaab</div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px dashed var(--border);">
+                <span style="font-size:0.75rem;font-weight:600;color:#16a34a;">💵 Cash Collected</span>
+                <span id="kpi-cash" style="font-size:0.9rem;font-weight:800;color:#16a34a;font-family:'JetBrains Mono',monospace;">₹0</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px dashed var(--border);">
+                <span style="font-size:0.75rem;font-weight:600;color:#2563eb;">📱 UPI Collected</span>
+                <span id="kpi-upi" style="font-size:0.9rem;font-weight:800;color:#2563eb;font-family:'JetBrains Mono',monospace;">₹0</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px dashed var(--border);">
+                <span style="font-size:0.75rem;font-weight:600;color:#0891b2;">💳 RFID Wallet</span>
+                <span id="kpi-rfid-wallet" style="font-size:0.9rem;font-weight:800;color:#0891b2;font-family:'JetBrains Mono',monospace;">₹0</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px dashed var(--border);">
+                <span style="font-size:0.75rem;font-weight:600;color:#d97706;">★ Bonus Used</span>
+                <span id="kpi-bonus-used" style="font-size:0.9rem;font-weight:800;color:#d97706;font-family:'JetBrains Mono',monospace;">₹0</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0 0;">
+                <span style="font-size:0.75rem;font-weight:700;color:var(--tx);">💰 Total Billed</span>
+                <span id="kpi-revenue" style="font-size:1rem;font-weight:800;color:var(--cy);font-family:'JetBrains Mono',monospace;">₹0</span>
+              </div>
+              <div style="font-size:0.62rem;color:var(--mu);margin-top:4px;text-align:right;" id="kpi-txns-sub">0 transactions</div>
+              <div id="kpi-pm-breakdown" style="display:none;"></div>
             </div>
             <!-- Counter revenue breakdown -->
             <div class="card" style="padding:12px 14px;">
@@ -705,12 +724,17 @@ select option{background:#fff;color:var(--tx);}
 
           <!-- ── Guest table — section tabs ── -->
           <div class="card" style="padding:0;overflow:hidden;">
-            <!-- Tab header + expand toggle -->
+            <!-- Tab header + sort + expand toggle -->
             <div style="display:flex;align-items:stretch;border-bottom:1px solid var(--border);background:#f8fafc;">
               <button id="gtab-all"    onclick="showGuestSection('all')"    style="flex:1;padding:10px 4px;font-size:0.72rem;font-weight:700;border:none;border-bottom:3px solid var(--cy);background:transparent;color:var(--cy);cursor:pointer;">All Cards</button>
               <button id="gtab-hotel"  onclick="showGuestSection('hotel')"  style="flex:1;padding:10px 4px;font-size:0.72rem;font-weight:700;border:none;border-bottom:3px solid transparent;background:transparent;color:var(--mu);cursor:pointer;">🏨 Hotel</button>
               <button id="gtab-gz"     onclick="showGuestSection('gz')"     style="flex:1;padding:10px 4px;font-size:0.72rem;font-weight:700;border:none;border-bottom:3px solid transparent;background:transparent;color:var(--mu);cursor:pointer;">🎮 GZ</button>
               <button id="gtab-walkin" onclick="showGuestSection('walkin')" style="flex:1;padding:10px 4px;font-size:0.72rem;font-weight:700;border:none;border-bottom:3px solid transparent;background:transparent;color:var(--mu);cursor:pointer;">🚶 Walk-in</button>
+              <select id="guest-sort-sel" onchange="guestSortBy=this.value;_renderGuestTable(_lastGuestRows[guestSectionActive]||[],guestSectionActive);" onclick="event.stopPropagation()" style="font-size:0.68rem;padding:2px 4px;border:none;border-left:1px solid var(--border);background:transparent;color:var(--mu);cursor:pointer;width:80px;">
+                <option value="spend">↓ Spend</option>
+                <option value="recent">🕐 Recent</option>
+                <option value="name">A-Z Name</option>
+              </select>
               <button onclick="toggleGuestTable()" id="gtab-toggle" style="padding:10px 14px;font-size:0.78rem;border:none;border-left:1px solid var(--border);background:transparent;color:var(--mu);cursor:pointer;" title="Expand/Collapse">▼</button>
             </div>
             <!-- Collapsed summary (shown by default) -->
@@ -3372,7 +3396,7 @@ function doLookup() {
   if (!card) { toast('Card not found — try RFID or mobile', true); return; }
   document.getElementById('lk-result').style.display = 'block';
   document.getElementById('lk-wc').innerHTML = walletHTML(card);
-  const ct = txns.filter(t=>t.rfid===card.rfid);
+  const ct = txns.filter(t=>t.rfid===card.rfid).sort((a,b)=>(b.ts||b.id||0)-(a.ts||a.id||0));
   document.getElementById('lk-tbl').innerHTML = ct.length ? ct.map(t=>`
     <tr>
       <td style="color:var(--mu);font-size:0.72rem;">${t.time}</td>
@@ -7146,22 +7170,19 @@ function renderTodaysSales() {
   const totalRevenue   = debitTxns.reduce((s,t) => s + (t.cashAmt||0) + (t.bonusAmt||0), 0);
   const totalCollected = creditTxns.reduce((s,t) => s + (t.cashAmt||0), 0);
 
-  // Update total KPI
+  // Update KPIs
   const set = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
-  set('kpi-revenue', fmt(totalRevenue));
+  set('kpi-revenue',     fmt(totalRevenue));
+  set('kpi-cash',        fmt(walkinCash));
+  set('kpi-upi',         fmt(walkinUPI));
+  set('kpi-rfid-wallet', fmt(rfidCash));
+  set('kpi-bonus-used',  fmt(rfidBonus));
   set('dash-rev-preview', fmt(totalRevenue));
   set('kpi-txns-sub', debitTxns.length + ' transaction' + (debitTxns.length !== 1 ? 's' : ''));
 
-  // Payment mode breakdown under total
+  // kpi-pm-breakdown kept hidden for JS compat
   const pmBreak = document.getElementById('kpi-pm-breakdown');
-  if (pmBreak) {
-    const parts = [];
-    if (walkinCash > 0)  parts.push('<span style="color:#16a34a;">💵 Cash: <b>'+fmt(walkinCash)+'</b></span>');
-    if (walkinUPI > 0)   parts.push('<span style="color:#2563eb;">📱 UPI: <b>'+fmt(walkinUPI)+'</b></span>');
-    if (rfidCash > 0)    parts.push('<span style="color:#1a7a5e;">💳 RFID Cash: <b>'+fmt(rfidCash)+'</b></span>');
-    if (rfidBonus > 0)   parts.push('<span style="color:#d97706;">★ Bonus: <b>'+fmt(rfidBonus)+'</b></span>');
-    pmBreak.innerHTML = parts.length ? parts.join(' &nbsp;·&nbsp; ') : '';
-  }
+  if (pmBreak) pmBreak.innerHTML = '';
 
   // ── Counter revenue bars ──
   const counterColors = {'Bowling':'#7c3aed','Game Zone':'#d97706','Food & Beverages':'#16a34a','Food':'#16a34a','Theatre':'#2563eb','Reception':'#1a7a5e'};
@@ -7214,6 +7235,12 @@ function renderTodaysSales() {
     cardGuestMap[key].cashSpent  += (t.cashAmt||0);
     cardGuestMap[key].bonusSpent += (t.bonusAmt||0);
     cardGuestMap[key].txnCount++;
+    // Track last transaction time for sort-by-recent
+    const ts = t.ts || t.id || 0;
+    if (!cardGuestMap[key].lastTxnTime || ts > cardGuestMap[key].lastTxnTime) {
+      cardGuestMap[key].lastTxnTime = ts;
+      cardGuestMap[key].lastTxnTimeStr = t.time || '';
+    }
   });
 
   const allCardRows = Object.values(cardGuestMap).sort((a,b) => (b.cashSpent+b.bonusSpent)-(a.cashSpent+a.bonusSpent));
@@ -7251,6 +7278,7 @@ function renderTodaysSales() {
   _renderGuestTable(_lastGuestRows[guestSectionActive] || [], guestSectionActive);
 }
 
+let guestSortBy = 'spend'; // 'spend' | 'recent' | 'name'
 let guestTableExpanded = false;
 
 function toggleGuestTable() {
@@ -7268,6 +7296,14 @@ function _renderGuestTable(rows, section) {
   const emptyEl  = document.getElementById('sales-guest-empty');
   const tbl      = document.getElementById('sales-guest-tbl');
   if (!tbl) return;
+
+  // Apply sort
+  rows = [...rows].sort((a,b) => {
+    const sortBy = guestSortBy || 'spend';
+    if (sortBy === 'recent') return (b.lastTxnTime||0) - (a.lastTxnTime||0);
+    if (sortBy === 'name')   return (a.name||'').localeCompare(b.name||'');
+    return (b.cashSpent+b.bonusSpent) - (a.cashSpent+a.bonusSpent);
+  });
 
   const isWalkin = section === 'walkin';
   const typeColors = {hotel:'#7c3aed', gz:'#d97706', card:'#2563eb'};

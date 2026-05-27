@@ -617,6 +617,11 @@ select option{background:#fff;color:var(--tx);}
               <label class="f">Custom Amount (₹)</label>
               <input type="number" id="tu-amt" placeholder="Enter any amount">
               <div class="bi" id="tu-bi" style="display:none;"></div>
+              <label class="f">Payment Received Via</label>
+              <div style="display:flex;gap:8px;margin-bottom:10px;">
+                <button id="tu-pay-cash" onclick="setTuPay('cash')" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--cy);background:#f0fdf4;color:var(--cy);font-weight:700;font-size:0.82rem;cursor:pointer;">💵 Cash</button>
+                <button id="tu-pay-upi"  onclick="setTuPay('upi')"  style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--border);background:#fff;color:var(--mu);font-weight:700;font-size:0.82rem;cursor:pointer;">📱 UPI</button>
+              </div>
               <button class="btn btn-mg btn-fw" onclick="topupCard()">Add Balance to Card</button>
             </div>
             <!-- Recent Cards — collapsible -->
@@ -1456,7 +1461,23 @@ const FB_CFG = {
 // ═══════════════════════════════════════════
 //  LOCAL STORAGE KEYS (backup)
 // ═══════════════════════════════════════════
-const LS = {cards:'lc5_cards',txns:'lc5_txns',menu:'lc5_menu',prices:'lc5_prices',amenities:'lc5_am',deleted:'lc5_deleted_cards',theatreSeats:'lc5_theatre_seats',theatreBookings:'lc5_theatre_bk',showSchedule:'lc5_show_schedule',members:'lc5_members',courtBk:'lc5_court_bk'};
+const LS = {cards:'lc5_cards',txns:'lc5_txns',menu:'lc5_menu',prices:'lc5_prices',amenities:'lc5_am',deleted:'lc5_deleted_cards',theatreSeats:'lc5_theatre_seats',theatreBookings:'lc5_theatre_bk',showSchedule:'lc5_show_schedule',members:'lc5_members',courtBk:'lc5_court_bk',kotDay:'lc5_kot_day',kotSeq:'lc5_kot_seq'};
+
+// ── Daily KOT order counter ──────────────────────────────────────
+// Resets to 1 every new calendar day. Stored in localStorage + Firebase.
+function getTodayDateKey() { const d=new Date(); return d.getFullYear()+'-'+(d.getMonth()+1).toString().padStart(2,'0')+'-'+d.getDate().toString().padStart(2,'0'); }
+function getNextKotNo() {
+  const today = getTodayDateKey();
+  const storedDay = localStorage.getItem(LS.kotDay);
+  let seq = parseInt(localStorage.getItem(LS.kotSeq)||'0',10);
+  if (storedDay !== today) { seq = 0; } // new day → reset
+  seq++;
+  localStorage.setItem(LS.kotDay, today);
+  localStorage.setItem(LS.kotSeq, String(seq));
+  // sync to Firebase if connected
+  try { if(db) db.ref('kotCounter/'+today).set(seq); } catch(e){}
+  return seq;
+}
 function lsGet(k){try{return JSON.parse(localStorage.getItem(k))||null;}catch(e){return null;}}
 function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 
@@ -1466,81 +1487,36 @@ function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 //  DEFAULT DATA
 // ═══════════════════════════════════════════
 const DEFAULT_MENU = [
-  {cat:'Premium Burgers',name:'Peri Peri Burger',price:269},
-  {cat:'Premium Burgers',name:'Spicy Barbeque King Burger',price:299},
-  {cat:'Premium Burgers',name:'Indian Delight Burger',price:299},
-  {cat:'Premium Burgers',name:'Punjabi Tadka Burger',price:299},
-  {cat:'Premium Burgers',name:'Double Tikki Burger',price:329},
-  {cat:'Premium Burgers',name:'Mexican King Burger',price:299},
-  {cat:'Premium Burgers',name:'Rawr King Burger',price:329},
-  {cat:'Premium Burgers',name:'Royal Paneer Grilled Burger',price:329},
-  {cat:'World of Fries',name:'Salted French Fries',price:129},
-  {cat:'World of Fries',name:'Peri Peri Fries',price:129},
-  {cat:'World of Fries',name:'Cheese Masala Fries',price:169},
-  {cat:'World of Fries',name:'Italian Loaded Fries',price:169},
-  {cat:'World of Fries',name:'Rawr Sizzling Fries',price:199},
-  {cat:'Grilled Wraps',name:'Classic Veg Wrap',price:229},
-  {cat:'Grilled Wraps',name:'Mexican Salsa Wrap',price:229},
-  {cat:'Grilled Wraps',name:'Italian Club Wrap',price:229},
-  {cat:'Grilled Wraps',name:'Spicy Paneer Wrap',price:229},
-  {cat:'Grilled Wraps',name:'Veggie Grilled Club Wrap',price:269},
-  {cat:'Grilled Wraps',name:'Veg Quesadillas',price:269},
-  {cat:'Grilled Wraps',name:'Mexican Fajitas',price:229},
-  {cat:'Nachos',name:'Nachos Chips with Cheese Dip',price:199},
-  {cat:'Nachos',name:'Cheesy Delight Nachos',price:199},
-  {cat:'Nachos',name:'Cheese Exotic Loaded Nachos',price:229},
-  {cat:'Pizzas',name:'Margherita Pizza',price:329},
-  {cat:'Pizzas',name:'Capsicum & Onion Cheese Pizza',price:399},
-  {cat:'Pizzas',name:'Corn & Capsicum Cheese Pizza',price:399},
-  {cat:'Pizzas',name:'Jalapeno & Onion Cheese Pizza',price:399},
-  {cat:'Pizzas',name:'Hot Cheese Pizza',price:399},
-  {cat:'Pizzas',name:'Veg Exotica Pizza',price:399},
-  {cat:'Pizzas',name:'Paneer Peri Peri Pizza',price:399},
-  {cat:'Pizzas',name:'Paneer Makhani Pizza',price:399},
-  {cat:'Pizzas',name:'Four Cheese Pizza',price:429},
-  {cat:'Pizzas',name:'Thin Crust Pizza',price:429},
-  {cat:'Garlic Bread',name:'Cheese Garlic Bread',price:269},
-  {cat:'Garlic Bread',name:'Cheese Chilly Garlic Bread',price:269},
-  {cat:'Garlic Bread',name:'Supreme Treat Garlic Bread',price:269},
-  {cat:'Garlic Bread',name:'Orange Cheese Mint Garlic Bread',price:269},
-  {cat:'Garlic Bread',name:'Paneer Makhani Garlic Bread',price:269},
-  {cat:'Pasta',name:'Arrabbiata Pasta (Red Sauce)',price:399},
-  {cat:'Pasta',name:'Alfredo Pasta (White Sauce)',price:399},
-  {cat:'Pasta',name:'Pink Sauce Pasta',price:399},
-  {cat:'Pasta',name:'Peri Peri Pasta',price:399},
-  {cat:'Pasta',name:'Maggie Masala Fusion Pasta',price:399},
-  {cat:'Sandwiches',name:'Veg Sandwich',price:229},
-  {cat:'Sandwiches',name:'Cheese Chutney',price:229},
-  {cat:'Sandwiches',name:'Cheese Chutney Potato',price:229},
-  {cat:'Sandwiches',name:'Veg Szechuan Sandwich',price:229},
-  {cat:'Sandwiches',name:'Veg Grilled Sandwich',price:329},
-  {cat:'Sandwiches',name:'Veg Chilly Garlic Sandwich',price:329},
-  {cat:'Sandwiches',name:'Veg Mexican Sandwich',price:329},
-  {cat:'Sandwiches',name:'Veg Paneer Toofani Sandwich',price:329},
-  {cat:'Sandwiches',name:'Greek Pita Sandwich',price:329},
-  {cat:'Sandwiches',name:'French Loaf Salad',price:329},
-  {cat:'Tea & Coffee',name:'Hot Coffee',price:169},
-  {cat:'Tea & Coffee',name:'Hot Tea',price:129},
-  {cat:'Tea & Coffee',name:'Peach Iced Tea',price:149},
-  {cat:'Tea & Coffee',name:'Lemon Iced Tea',price:149},
-  {cat:'Tea & Coffee',name:'Mint Ice Tea',price:149},
-  {cat:'Tea & Coffee',name:'Iced Coffee with Milk',price:149},
-  {cat:'Tea & Coffee',name:'Cold Coffee with Ice Cream',price:149},
-  {cat:'Mocktails',name:'Classic Mint Mojito',price:199},
-  {cat:'Mocktails',name:'Blue Lagoon',price:199},
-  {cat:'Mocktails',name:'Blue Hawaiian',price:199},
-  {cat:'Mocktails',name:'Watermelon Lemonade',price:199},
-  {cat:'Mocktails',name:'Strawberry Pina Colada',price:199},
-  {cat:'Mocktails',name:'Roy Rogers',price:199},
-  {cat:'Mocktails',name:'Shirley Temple',price:199},
-  {cat:'Shakes & Juice',name:'Fresh Juice',price:129},
-  {cat:'Shakes & Juice',name:'Coconut Hot Fudge Milkshake',price:199},
-  {cat:'Shakes & Juice',name:'Peanut Butter Milkshake',price:199},
-  {cat:'Shakes & Juice',name:'Banana Milkshake',price:199},
-  {cat:'Shakes & Juice',name:'Brownie Milkshake',price:199},
-  {cat:'Shakes & Juice',name:'Oreo Milkshake',price:199},
-  {cat:'Shakes & Juice',name:'Chocolate Banana Milkshake',price:199},
-  {cat:'Energy Drinks',name:'Red Bull',price:200},
+  // Bakery
+  {cat:'Bakery',name:'Donuts',price:49},
+  {cat:'Bakery',name:'Cupcake',price:69},
+  {cat:'Bakery',name:'Muffins',price:69},
+  {cat:'Bakery',name:'Pastry',price:99},
+  {cat:'Bakery',name:'Brownie',price:99},
+  // Sandwich
+  {cat:'Sandwich',name:'Veg Sandwich',price:99},
+  {cat:'Sandwich',name:'Cheese Sandwich',price:119},
+  {cat:'Sandwich',name:'Coleslaw Sandwich',price:119},
+  // Snacks
+  {cat:'Snacks',name:'Samosa (2 Pcs)',price:80},
+  {cat:'Snacks',name:'Chinese Puff',price:60},
+  {cat:'Snacks',name:'Masala Puff',price:60},
+  // Coffee
+  {cat:'Coffee',name:'Cold Coffee',price:149},
+  {cat:'Coffee',name:'Ice Coffee',price:149},
+  {cat:'Coffee',name:'Americano (Hot)',price:149},
+  {cat:'Coffee',name:'Cappuccino',price:149},
+  {cat:'Coffee',name:'Espresso Coffee (Hot)',price:149},
+  {cat:'Coffee',name:'Red Bull Coffee',price:299},
+  {cat:'Coffee',name:'Tonic Water Coffee',price:299},
+  // Add-On Beverages
+  {cat:'Beverages',name:'Soft Drinks',price:60},
+  {cat:'Beverages',name:'Mineral Water',price:20},
+  {cat:'Beverages',name:'Red Bull',price:149},
+  // Combos
+  {cat:'Combo Offers',name:'Sandwich + Cold Coffee',price:229},
+  {cat:'Combo Offers',name:'Samosa + Coffee',price:199},
+  {cat:'Combo Offers',name:'Brownie + Ice Coffee',price:219},
 ];
 
 const DEFAULT_AMENITIES = [
@@ -2467,11 +2443,22 @@ function topupCard() {
   const amt = parseFloat(document.getElementById('tu-amt').value)||0;
   if (amt <= 0) { toast('Enter amount', true); return; }
   const bonus = tuBonus || bonusForAmt(amt);
+  const payMethod = window._tuPayMode || 'cash';
   card.cashBalance  += amt;
   card.bonusBalance += bonus;
   persist('cards');
-  addTxnRecord(card, 'Reception', 'Top-up' + (bonus>0?' + bonus':''), amt, bonus, 'credit');
-  toast(fmt(amt) + ' added' + (bonus>0 ? ' · '+fmt(bonus)+' bonus' : ''));
+  // Store payMethod in transaction for accurate Cash/UPI report reconciliation
+  const t = {
+    id: Date.now(), time: nowStr(), customer: card.name, rfid: card.rfid,
+    counter: 'Reception', desc: 'Top-up' + (bonus>0?' + bonus':''),
+    cashAmt: amt, bonusAmt: bonus, type: 'credit',
+    cashBalAfter: card.cashBalance, bonusBalAfter: card.bonusBalance,
+    payMethod: payMethod
+  };
+  txns.unshift(t);
+  saveTxn(t);
+  if (document.getElementById('scr-reception')?.classList.contains('active')) renderTodaysSales();
+  toast(fmt(amt) + ' added via ' + (payMethod==='upi'?'UPI':'Cash') + (bonus>0 ? ' · '+fmt(bonus)+' bonus' : ''));
   document.getElementById('tu-wc').innerHTML = walletHTML(card);
   // Clear all topup fields
   document.getElementById('tu-amt').value = '';
@@ -2485,6 +2472,22 @@ function topupCard() {
   document.getElementById('tu-wc').style.display = 'none';
   refreshCardsTable();
   renderClientsList();
+}
+
+let _tuPayMode = 'cash';
+window._tuPayMode = 'cash';
+function setTuPay(mode) {
+  window._tuPayMode = mode;
+  const cash = document.getElementById('tu-pay-cash');
+  const upi  = document.getElementById('tu-pay-upi');
+  if (!cash || !upi) return;
+  if (mode === 'cash') {
+    cash.style.cssText = 'flex:1;padding:8px;border-radius:8px;border:2px solid var(--cy);background:#f0fdf4;color:var(--cy);font-weight:700;font-size:0.82rem;cursor:pointer;';
+    upi.style.cssText  = 'flex:1;padding:8px;border-radius:8px;border:2px solid var(--border);background:#fff;color:var(--mu);font-weight:700;font-size:0.82rem;cursor:pointer;';
+  } else {
+    upi.style.cssText  = 'flex:1;padding:8px;border-radius:8px;border:2px solid var(--go);background:#fffbeb;color:var(--go);font-weight:700;font-size:0.82rem;cursor:pointer;';
+    cash.style.cssText = 'flex:1;padding:8px;border-radius:8px;border:2px solid var(--border);background:#fff;color:var(--mu);font-weight:700;font-size:0.82rem;cursor:pointer;';
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -2677,69 +2680,188 @@ function buildGZHtml(am) {
 }
 
 function buildFoodHtml(am) {
-  return `<div class="n-mg">⚠ Cash balance only — bonus wallet NOT accepted for food.</div>
-  <!-- Food payment mode selector -->
-  <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;">
-    <button class="btn btn-sm" id="food-pm-rfid" onclick="setFoodPayMode('rfid')" style="background:rgba(78,203,138,0.15);border:1.5px solid var(--cy);color:var(--cy);">📡 RFID Wallet</button>
-    <button class="btn btn-sm" id="food-pm-cash" onclick="setFoodPayMode('cash')" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--mu);">💵 Cash</button>
-    <button class="btn btn-sm" id="food-pm-upi"  onclick="setFoodPayMode('upi')"  style="background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--mu);">📱 UPI</button>
-  </div>
-  <div class="two-col">
-    <div>
-      <div id="food-rfid-zone">
-        <div class="tap" id="food-tap" onclick="activateTap('food')">
-          <div class="tap-ic">📡</div><div class="tap-lbl">TAP CUSTOMER CARD</div><div class="tap-sub">cash balance will be charged</div>
-        </div>
-        <div id="food-wc" style="display:none;"></div>
-      </div>
-      <div id="food-walkin-zone" style="display:none;">
-        <div class="n-cy" style="margin-bottom:9px;font-size:0.82rem;">💵 Walk-in — bill total will be collected as <span id="food-walkin-method-label">Cash</span></div>
-      </div>
-      <div class="sl">Menu</div>
-      <!-- Search bar -->
-      <div style="position:relative;margin-bottom:8px;">
-        <input type="text" id="food-search" placeholder="🔍 Search item..." oninput="renderFoodMenu()"
-          style="padding-left:10px;padding-right:32px;font-size:0.84rem;margin-bottom:0;">
-        <button onclick="document.getElementById('food-search').value='';renderFoodMenu()"
-          style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;font-size:0.9rem;color:var(--mu);cursor:pointer;padding:0;line-height:1;">✕</button>
-      </div>
-      <!-- Category tabs -->
-      <div id="food-cat-tabs" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;"></div>
-      <!-- Menu list -->
-      <div class="card" style="padding:11px;max-height:340px;overflow-y:auto;" id="food-menu"></div>
+  // Show today's order count badge (updates after DOM render)
+  setTimeout(()=>{
+    const today=getTodayDateKey();
+    const storedDay=localStorage.getItem(LS.kotDay);
+    const seq=(storedDay===today)?parseInt(localStorage.getItem(LS.kotSeq)||'0',10):0;
+    const el=document.getElementById('kot-today-count'); if(el) el.textContent=String(seq);
+  },80);
+  return `
+  <!-- KOT Order System -->
+  <style>
+    /* ── BIG ICON MENU GRID ── */
+    .kot-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:10px;}
+    .kot-item{background:#fff;border:2px solid var(--border);border-radius:14px;padding:12px 8px 10px;text-align:center;cursor:pointer;transition:all 0.15s;user-select:none;position:relative;}
+    .kot-item:hover{border-color:var(--mg);background:#eff6ff;transform:translateY(-2px);box-shadow:0 4px 12px rgba(37,99,235,0.15);}
+    .kot-item:active{transform:scale(0.97);}
+    .kot-item-icon{font-size:2.4rem;display:block;margin-bottom:5px;line-height:1;}
+    .kot-item-name{font-size:0.8rem;font-weight:700;color:var(--tx);line-height:1.25;margin-bottom:5px;}
+    .kot-item-price{font-family:'JetBrains Mono',monospace;font-size:1rem;color:var(--mg);font-weight:800;display:block;}
+    .kot-item-in-cart{position:absolute;top:5px;right:5px;background:var(--mg);color:#fff;border-radius:50%;width:20px;height:20px;font-size:0.65rem;font-weight:900;display:flex;align-items:center;justify-content:center;}
+    .kot-cat-btn{padding:7px 16px;border:2px solid var(--border);border-radius:24px;font-size:0.8rem;font-weight:700;cursor:pointer;background:#fff;color:var(--mu);transition:all 0.15s;white-space:nowrap;}
+    .kot-cat-btn.active{border-color:var(--mg);background:var(--mg);color:#fff;}
+    .kot-bill-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:0.9rem;}
+    .kot-qty-btn{width:28px;height:28px;border-radius:7px;border:1.5px solid var(--border);background:#f8fafc;cursor:pointer;font-size:1.05rem;font-weight:900;color:var(--tx);display:flex;align-items:center;justify-content:center;transition:all 0.12s;flex-shrink:0;}
+    .kot-qty-btn:hover{background:var(--mg);color:#fff;border-color:var(--mg);}
+    .kot-table-row{display:flex;gap:8px;align-items:center;margin-bottom:10px;}
+    .kot-pm-btn{padding:9px 16px;border-radius:9px;border:1.5px solid var(--border);background:#fff;color:var(--mu);font-size:0.82rem;font-weight:700;cursor:pointer;transition:all 0.15s;}
+    .kot-pm-btn.active{border-color:var(--mg);background:#eff6ff;color:var(--mg);}
+    .kot-order-badge{background:var(--mg);color:#fff;font-family:'JetBrains Mono',monospace;font-size:0.85rem;font-weight:800;padding:4px 12px;border-radius:8px;letter-spacing:0.04em;}
+    @media print{
+      body *{visibility:hidden;}
+      #kot-print-area,#kot-print-area *{visibility:visible;}
+      #kot-print-area{position:fixed;top:0;left:0;width:80mm;font-family:monospace;font-size:12px;padding:8px;}
+    }
+  </style>
+  <div id="kot-print-area" style="display:none;"></div>
+
+  <!-- Payment mode + Today's order counter -->
+  <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;">
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+      <span style="font-size:0.75rem;font-weight:700;color:var(--mu);white-space:nowrap;">Pay via:</span>
+      <button class="kot-pm-btn active" id="food-pm-rfid" onclick="setFoodPayMode('rfid')">📡 RFID Wallet</button>
+      <button class="kot-pm-btn" id="food-pm-cash" onclick="setFoodPayMode('cash')">💵 Cash</button>
+      <button class="kot-pm-btn" id="food-pm-upi"  onclick="setFoodPayMode('upi')">📱 UPI</button>
     </div>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <span style="font-size:0.7rem;color:var(--mu);font-weight:600;">Today's Orders:</span>
+      <span class="kot-order-badge" id="kot-today-count">0</span>
+    </div>
+  </div>
+
+  <!-- RFID Tap / Walk-in -->
+  <div id="food-rfid-zone">
+    <div class="tap" id="food-tap" onclick="activateTap('food')" style="padding:14px;margin-bottom:10px;">
+      <div class="tap-ic" style="font-size:1.7rem;">📡</div>
+      <div class="tap-lbl">TAP CUSTOMER CARD</div>
+      <div class="tap-sub">or use Cash / UPI above</div>
+    </div>
+    <div id="food-wc" style="display:none;margin-bottom:10px;"></div>
+  </div>
+  <div id="food-walkin-zone" style="display:none;">
+    <div class="n-cy" style="margin-bottom:9px;font-size:0.82rem;">💵 Walk-in — bill total collected as <span id="food-walkin-method-label">Cash</span></div>
+  </div>
+
+  <!-- Table number -->
+  <div class="kot-table-row">
+    <label style="font-size:0.78rem;font-weight:700;color:var(--mu);white-space:nowrap;">Table / Token:</label>
+    <input type="text" id="kot-table-no" placeholder="e.g. T3 or Counter" style="margin-bottom:0;flex:1;padding:8px 11px;font-size:0.9rem;">
+    <label style="font-size:0.78rem;font-weight:700;color:var(--mu);white-space:nowrap;">Guest Name:</label>
+    <input type="text" id="kot-guest-name" placeholder="Optional" style="margin-bottom:0;flex:1;padding:8px 11px;font-size:0.9rem;">
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+    <!-- LEFT: Big icon menu -->
     <div>
-      <div class="sl">Current Bill</div>
-      <div class="card" style="padding:11px;min-height:130px;">
-        <div id="food-bill-items"><div class="empty">Add items from menu</div></div>
+      <div class="sl" style="margin-bottom:8px;">Menu — tap to add</div>
+      <!-- Category filter pills -->
+      <div id="kot-cat-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;overflow-x:auto;padding-bottom:2px;"></div>
+      <!-- Search -->
+      <div style="position:relative;margin-bottom:10px;">
+        <input type="text" id="food-search" placeholder="🔍 Search item..." oninput="renderFoodMenu()" style="padding:9px 34px 9px 12px;font-size:0.9rem;margin-bottom:0;border-radius:10px;">
+        <button onclick="document.getElementById('food-search').value='';renderFoodMenu()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;font-size:0.95rem;color:var(--mu);cursor:pointer;padding:0;">✕</button>
+      </div>
+      <!-- Big item grid -->
+      <div id="food-menu" style="max-height:430px;overflow-y:auto;padding-right:2px;"></div>
+    </div>
+
+    <!-- RIGHT: Current Order + KOT -->
+    <div>
+      <div class="sl" style="margin-bottom:8px;">Order Slip</div>
+      <div class="card" style="padding:11px;min-height:140px;">
+        <div id="food-bill-items"><div class="empty" style="font-size:0.82rem;">Tap items to add</div></div>
         <div id="food-bill-foot" style="display:none;">
-          <div class="bill-tot"><span>Total</span><span id="food-bill-tot">₹0</span></div>
-          <!-- Discount & Reference -->
-          <div class="disc-ref-box" style="margin-top:10px;">
-            <div style="font-size:0.74rem;font-weight:700;color:var(--mu);margin-bottom:8px;letter-spacing:0.04em;">DISCOUNT & REFERENCE</div>
-            <div class="dr-row">
-              <span style="font-size:0.74rem;color:var(--mu);">Discount:</span>
-              <button class="disc-btn" id="food-disc-none" onclick="setFoodDisc('none')" style="background:rgba(255,255,255,0.08);border-color:var(--cy);color:var(--cy);">None</button>
+          <div class="bill-tot" style="margin-bottom:8px;"><span>Total</span><span id="food-bill-tot">₹0</span></div>
+          <!-- Discount -->
+          <div style="margin-bottom:8px;">
+            <div style="font-size:0.72rem;font-weight:700;color:var(--mu);margin-bottom:5px;">DISCOUNT</div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;">
+              <button class="disc-btn" id="food-disc-none" onclick="setFoodDisc('none')" style="border-color:var(--cy);color:var(--cy);">None</button>
               <button class="disc-btn" id="food-disc-pct"  onclick="setFoodDisc('pct')">% Off</button>
               <button class="disc-btn" id="food-disc-flat" onclick="setFoodDisc('flat')">Flat ₹</button>
             </div>
-            <div class="disc-amt-row" id="food-disc-row" style="display:none;">
-              <input type="number" id="food-disc-val" placeholder="Enter value" min="0" oninput="renderBill()" style="max-width:140px;">
-              <span class="disc-preview" id="food-disc-preview"></span>
+            <div id="food-disc-row" style="display:none;margin-top:5px;display:flex;gap:6px;align-items:center;">
+              <input type="number" id="food-disc-val" placeholder="Value" min="0" oninput="renderBill()" style="max-width:110px;margin-bottom:0;padding:7px 9px;font-size:0.9rem;">
+              <span id="food-disc-preview" style="font-size:0.82rem;color:var(--rd);font-weight:700;"></span>
             </div>
-            <label class="f" style="margin-top:4px;">Reference / Reason <span style="color:var(--mu);font-weight:400;font-size:0.7rem;">(required only when discount applied)</span></label>
-            <input type="text" id="food-ref" placeholder="e.g. Manager approval, Complaint, Staff" style="margin-bottom:0;">
           </div>
-          <div style="display:flex;gap:7px;margin-top:11px;">
-            <button class="btn btn-rd btn-sm" onclick="clearBill()">Clear</button>
+          <!-- Ref -->
+          <label class="f" style="font-size:0.72rem;">Ref / Note</label>
+          <input type="text" id="food-ref" placeholder="Manager approval, staff, complaint..." style="margin-bottom:10px;padding:7px 9px;font-size:0.84rem;">
+          <!-- Action buttons -->
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-rd btn-sm" onclick="clearBill()" style="flex:0 0 auto;">Clear</button>
+            <button class="btn btn-gn btn-sm" onclick="printKOT()" style="flex:1;">🖨 Print Bill</button>
             <button class="btn btn-mg" style="flex:1;" id="food-charge-btn" onclick="chargeFoodBill()">Charge</button>
           </div>
         </div>
       </div>
-      <div class="sl" style="margin-top:4px;">Recent Food Transactions</div>
-      <div class="card" style="padding:11px;"><div id="food-txns"><div class="empty">No transactions yet</div></div></div>
+      <div class="sl" style="margin-top:8px;margin-bottom:6px;">Recent Orders</div>
+      <div class="card" style="padding:11px;"><div id="food-txns"><div class="empty">No orders yet</div></div></div>
     </div>
   </div>`;
+}
+
+/* ─── KOT PRINT ─── */
+function printKOT() {
+  if (!foodBill.length) { toast('Add items first', true); return; }
+  const tableNo   = (document.getElementById('kot-table-no')  ||{}).value || '—';
+  const guestName = (document.getElementById('kot-guest-name')||{}).value || '';
+  const rawTotal  = foodBill.reduce((s,b)=>s+b.price*b.qty,0);
+  const {final:total, discAmt} = applyDiscount(rawTotal, foodDiscMode, 'food-disc-val', 'food-disc-preview');
+  const orderNo   = getNextKotNo();
+  const billNo    = getTodayDateKey().replace(/-/g,'').slice(4) + '-' + String(orderNo).padStart(3,'0');
+  const nowT      = nowStr();
+  const payLabel  = foodPayMode==='rfid' ? 'RFID Wallet' : foodPayMode==='upi' ? 'UPI' : 'Cash';
+
+  const rows = foodBill.map(b=>
+    `<tr><td>${b.name}</td><td>${b.qty}</td><td>&#8377;${(b.price*b.qty).toLocaleString('en-IN')}</td></tr>`
+  ).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Bill</title>
+<style>
+  @page{margin:4mm 3mm;size:80mm auto;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{width:74mm;font-family:'Courier New',monospace;font-size:11.5px;color:#000;background:#fff;}
+  h1{font-size:13px;font-weight:900;text-align:center;letter-spacing:1px;margin-bottom:1px;}
+  .sub{text-align:center;font-size:9.5px;color:#444;margin-bottom:5px;}
+  .dash{border:none;border-top:1px dashed #000;margin:4px 0;}
+  .row{display:flex;justify-content:space-between;font-size:10.5px;margin:1.5px 0;}
+  .bill-no{background:#000;color:#fff;text-align:center;font-size:14px;font-weight:900;padding:3px 0;margin:3px 0;letter-spacing:1.5px;}
+  table{width:100%;border-collapse:collapse;margin:3px 0;}
+  th{border-bottom:1px solid #000;padding:1.5px 2px;font-size:10px;text-align:left;}
+  th:nth-child(2){text-align:center;}th:nth-child(3){text-align:right;}
+  td{padding:2px 2px;font-size:11px;vertical-align:top;}
+  td:nth-child(2){text-align:center;}td:nth-child(3){text-align:right;white-space:nowrap;}
+  .total-line{border-top:1.5px solid #000;font-weight:900;font-size:13px;display:flex;justify-content:space-between;padding-top:4px;margin-top:2px;}
+  .footer{text-align:center;font-size:9px;margin-top:5px;color:#555;line-height:1.5;}
+</style></head><body>
+<h1>LEO CLUB</h1>
+<div class="sub">The Fern, Junagadh &nbsp;|&nbsp; Bowling Alley Cafe</div>
+<div class="dash"></div>
+<div class="bill-no">BILL # ${String(orderNo).padStart(3,'0')}</div>
+<div class="dash"></div>
+<div class="row"><span><b>Date:</b> ${nowT}</span><span><b>Ref:</b> ${billNo}</span></div>
+${tableNo!=='—'?`<div class="row"><span><b>Table/Token:</b> ${tableNo}</span>${guestName?`<span><b>Guest:</b> ${guestName}</span>`:''}</div>`:''}
+<div class="row"><span><b>Payment:</b> ${payLabel}</span></div>
+<div class="dash"></div>
+<table>
+  <thead><tr><th>Item</th><th>Qty</th><th>Amt</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<div class="dash"></div>
+${discAmt>0?`<div class="row"><span>Subtotal</span><span>&#8377;${rawTotal.toLocaleString('en-IN')}</span></div><div class="row"><span>Discount</span><span>-&#8377;${discAmt.toLocaleString('en-IN')}</span></div>`:''}
+<div class="total-line"><span>TOTAL</span><span>&#8377;${total.toLocaleString('en-IN')}</span></div>
+<div class="dash"></div>
+<div class="footer">Thank you for visiting Leo Club!<br>The Fern, Junagadh &mdash; www.thefernhotels.com</div>
+</body></html>`;
+
+  const w = window.open('','_blank','width=320,height=500');
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>{ w.print(); setTimeout(()=>w.close(),1500); },350);
+  toast('Bill #' + String(orderNo).padStart(3,'0') + ' printed');
 }
 
 function buildGenericHtml(am) {
@@ -3128,8 +3250,7 @@ function setFoodPayMode(mode) {
   foodPayMode = mode;
   ['rfid','cash','upi'].forEach(m => {
     const el = document.getElementById('food-pm-'+m); if(!el) return;
-    if(m===mode){ el.style.background='rgba(78,203,138,0.15)'; el.style.border='1.5px solid var(--cy)'; el.style.color='var(--cy)'; }
-    else        { el.style.background='rgba(255,255,255,0.05)'; el.style.border='1px solid var(--border)'; el.style.color='var(--mu)'; }
+    el.classList.toggle('active', m===mode);
   });
   const rfidZone   = document.getElementById('food-rfid-zone');
   const walkinZone = document.getElementById('food-walkin-zone');
@@ -3151,9 +3272,19 @@ function setFoodPayMode(mode) {
 }
 let foodActiveCat = 'ALL';
 
+// Map categories to emoji icons for big-icon grid
+const FOOD_CAT_ICONS = {
+  'Bakery':'🧁','Sandwich':'🥪','Snacks':'🥐','Coffee':'☕','Beverages':'🥤',
+  'Combo Offers':'🎁','Add-On Beverages':'🥤','Tea & Coffee':'☕','Mocktails':'🍹',
+  'Shakes & Juice':'🥤','Energy Drinks':'⚡','Pizzas':'🍕','Garlic Bread':'🥖',
+  'Pasta':'🍝','Sandwiches':'🥪','Nachos':'🫓','Grilled Wraps':'🌯',
+  'World of Fries':'🍟','Premium Burgers':'🍔',
+};
+function foodCatIcon(cat) { return FOOD_CAT_ICONS[cat] || '🍽'; }
+
 function renderFoodMenu() {
   const el       = document.getElementById('food-menu');
-  const tabsEl   = document.getElementById('food-cat-tabs');
+  const tabsEl   = document.getElementById('food-cat-tabs') || document.getElementById('kot-cat-tabs');
   const searchEl = document.getElementById('food-search');
   if (!el) return;
 
@@ -3175,12 +3306,8 @@ function renderFoodMenu() {
       const allCats = ['ALL', ...cats];
       tabsEl.innerHTML = allCats.map(c => {
         const active = c === foodActiveCat;
-        return '<button onclick="_foodCatClick(\'' + c + '\')" '
-          + 'style="padding:5px 10px;font-size:0.72rem;font-weight:700;border-radius:16px;border:1.5px solid '
-          + (active ? 'var(--cy)' : 'var(--border)') + ';background:'
-          + (active ? 'rgba(78,203,138,0.12)' : '#fff') + ';color:'
-          + (active ? 'var(--cy)' : 'var(--mu)') + ';cursor:pointer;white-space:nowrap;">'
-          + c + '</button>';
+        const icon = c === 'ALL' ? '🍽' : foodCatIcon(c);
+        return '<button class="kot-cat-btn' + (active ? ' active' : '') + '" onclick="_foodCatClick(\''+ c + '\')">' + icon + ' ' + c + '</button>';
       }).join('');
     }
   }
@@ -3188,7 +3315,6 @@ function renderFoodMenu() {
   // ── Filter items ──
   let filtered;
   if (query) {
-    // Search mode: match name or category, show all matching
     filtered = menuItems
       .map((item, gi) => ({item, gi}))
       .filter(({item}) => item.name.toLowerCase().includes(query) || item.cat.toLowerCase().includes(query));
@@ -3196,36 +3322,40 @@ function renderFoodMenu() {
       el.innerHTML = '<div class="empty">No items match "' + query + '"</div>';
       return;
     }
-    // Group results by category for readability
+    // Show search results as big icon grid
     const resultCats = [...new Set(filtered.map(({item}) => item.cat))];
     el.innerHTML = resultCats.map(cat => {
       const catItems = filtered.filter(({item}) => item.cat === cat);
-      return '<div class="m-sec">' + cat + '</div>'
-        + catItems.map(({item, gi}) =>
-            '<div class="m-row">'
-            + '<div class="m-name">' + _highlight(item.name, query) + '</div>'
-            + '<div style="display:flex;align-items:center;">'
-            + '<span class="m-price">' + fmt(item.price) + '</span>'
-            + '<button class="btn btn-xs btn-gh" onclick="addToBill(' + gi + ')">+ Add</button>'
-            + '</div></div>'
-          ).join('');
+      const icon = foodCatIcon(cat);
+      return '<div class="m-sec">' + icon + ' ' + cat + '</div><div class="kot-grid">'
+        + catItems.map(({item, gi}) => {
+            const inCart = foodBill.find(b=>b.name===item.name);
+            return '<div class="kot-item" onclick="addToBill(' + gi + ')">'
+              + (inCart ? '<div class="kot-item-in-cart">'+inCart.qty+'</div>' : '')
+              + '<span class="kot-item-icon">' + icon + '</span>'
+              + '<div class="kot-item-name">' + _highlight(item.name, query) + '</div>'
+              + '<span class="kot-item-price">' + fmt(item.price) + '</span>'
+              + '</div>';
+          }).join('') + '</div>';
     }).join('');
   } else {
-    // Category mode
+    // Category mode — big icon grid per category
     const showCats = foodActiveCat === 'ALL' ? cats : cats.filter(c => c === foodActiveCat);
     el.innerHTML = showCats.map(cat => {
       const catItems = menuItems
         .map((item, gi) => ({item, gi}))
         .filter(({item}) => item.cat === cat);
-      return '<div class="m-sec">' + cat + '</div>'
-        + catItems.map(({item, gi}) =>
-            '<div class="m-row">'
-            + '<div class="m-name">' + item.name + '</div>'
-            + '<div style="display:flex;align-items:center;">'
-            + '<span class="m-price">' + fmt(item.price) + '</span>'
-            + '<button class="btn btn-xs btn-gh" onclick="addToBill(' + gi + ')">+ Add</button>'
-            + '</div></div>'
-          ).join('');
+      const icon = foodCatIcon(cat);
+      return '<div class="m-sec">' + icon + ' ' + cat + '</div><div class="kot-grid">'
+        + catItems.map(({item, gi}) => {
+            const inCart = foodBill.find(b=>b.name===item.name);
+            return '<div class="kot-item" onclick="addToBill(' + gi + ')">'
+              + (inCart ? '<div class="kot-item-in-cart">'+inCart.qty+'</div>' : '')
+              + '<span class="kot-item-icon">' + icon + '</span>'
+              + '<div class="kot-item-name">' + item.name + '</div>'
+              + '<span class="kot-item-price">' + fmt(item.price) + '</span>'
+              + '</div>';
+          }).join('') + '</div>';
     }).join('');
   }
 }
@@ -3255,6 +3385,7 @@ function addToBill(idx) {
   const ex = foodBill.find(b=>b.name===item.name);
   if (ex) ex.qty++; else foodBill.push({name:item.name,price:item.price,qty:1});
   renderBill();
+  renderFoodMenu(); // refresh cart badges on menu grid
 }
 
 function renderBill() {
@@ -3265,14 +3396,22 @@ function renderBill() {
     if(bf) bf.style.display='none'; return;
   }
   const total = foodBill.reduce((s,b)=>s+b.price*b.qty,0);
-  if(bi) bi.innerHTML = foodBill.map((b,i)=>`<div class="bill-item"><span>${b.name} <span style="color:var(--mu);">x${b.qty}</span></span><div style="display:flex;align-items:center;gap:7px;"><span style="font-family:'JetBrains Mono',monospace;font-size:0.77rem;">${fmt(b.price*b.qty)}</span><button onclick="removeBillItem(${i})" style="background:none;border:none;color:var(--mu);cursor:pointer;">✕</button></div></div>`).join('');
+  if(bi) bi.innerHTML = foodBill.map((b,i)=>`<div class="kot-bill-row">
+    <div style="flex:1;font-size:0.87rem;font-weight:600;">${b.name}</div>
+    <button class="kot-qty-btn" onclick="changeBillQty(${i},-1)">−</button>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;font-weight:700;min-width:18px;text-align:center;">${b.qty}</span>
+    <button class="kot-qty-btn" onclick="changeBillQty(${i},1)">+</button>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:var(--cy);min-width:52px;text-align:right;">${fmt(b.price*b.qty)}</span>
+    <button onclick="removeBillItem(${i})" style="background:none;border:none;color:#ccc;cursor:pointer;font-size:1rem;padding:0 2px;">✕</button>
+  </div>`).join('');
   const {final:discTotal, discAmt} = applyDiscount(total, foodDiscMode, 'food-disc-val', 'food-disc-preview');
   const bt = document.getElementById('food-bill-tot');
   if(bt) bt.textContent = fmt(discTotal) + (discAmt>0?' (−'+fmt(discAmt)+' disc)':'');
   if(bf) bf.style.display='block';
 }
 function removeBillItem(i) { foodBill.splice(i,1); renderBill(); }
-function clearBill() { foodBill=[]; renderBill(); }
+function changeBillQty(i,delta) { if(!foodBill[i]) return; foodBill[i].qty+=delta; if(foodBill[i].qty<=0) foodBill.splice(i,1); renderBill(); }
+function clearBill() { foodBill=[]; renderBill(); renderFoodMenu(); }
 
 function chargeFoodBill() {
   const rawTotal = foodBill.reduce((s,b)=>s+b.price*b.qty,0);
@@ -3353,6 +3492,14 @@ function refreshFoodTxns() {
   const el = document.getElementById('food-txns'); if(!el) return;
   const t = txns.filter(x=>x.counter==='Food & Beverages').slice(0,8);
   el.innerHTML = t.length ? t.map(x=>`<div class="hr"><div><div>${x.customer}</div><div style="font-size:0.65rem;color:var(--mu);">${x.time}</div></div><div class="db">-${fmt(x.cashAmt)}</div></div>`).join('') : '<div class="empty">No transactions yet</div>';
+  // Update today's order counter badge
+  const badge = document.getElementById('kot-today-count');
+  if (badge) {
+    const today = getTodayDateKey();
+    const storedDay = localStorage.getItem(LS.kotDay);
+    const seq = (storedDay === today) ? parseInt(localStorage.getItem(LS.kotSeq)||'0',10) : 0;
+    badge.textContent = String(seq);
+  }
 }
 
 function refreshCounterTxns() { refreshBowlTxns(); refreshGZTxns(); refreshFoodTxns(); }
@@ -4085,6 +4232,13 @@ function downloadDailyReport() {
     ['DAILY SUMMARY','',''],
     ['Total Transactions', dayTxns.length,''],
     ['Total Cash Collected', dayTxns.filter(t=>t.type==='debit').reduce((s,t)=>s+(t.cashAmt||0),0),''],
+    ['','',''],
+    ['── HISSAB CLARITY (GZ Card Accounting) ──','',''],
+    ['Cash Physically Received (Recharges + Walk-in)', dayTxns.filter(t=>t.counter==='Reception'&&t.type==='credit').reduce((s,t)=>s+(t.cashAmt||0),0) + dayTxns.filter(t=>t.type==='debit'&&!(t.rfid&&t.rfid!=='WALKIN'&&t.counter!=='Reception')).reduce((s,t)=>s+(t.cashAmt||0),0),''],
+    ['Wallet Loaded on GZ Cards (Total Recharged)', dayTxns.filter(t=>t.counter==='Reception'&&t.type==='credit').reduce((s,t)=>s+(t.cashAmt||0),0),''],
+    ['Wallet Actually Spent by Guests', dayTxns.filter(t=>t.type==='debit'&&t.rfid&&t.rfid!=='WALKIN').reduce((s,t)=>s+(t.cashAmt||0)+(t.bonusAmt||0),0),''],
+    ['Wallet Balance Still on Cards (Liability)', Math.max(0,dayTxns.filter(t=>t.counter==='Reception'&&t.type==='credit').reduce((s,t)=>s+(t.cashAmt||0),0)-dayTxns.filter(t=>t.type==='debit'&&t.rfid&&t.rfid!=='WALKIN').reduce((s,t)=>s+(t.cashAmt||0)+(t.bonusAmt||0),0)),''],
+    ['NOTE: Recharge appears as SALES but unused portion stays as LIABILITY on card','',''],
     ['Total Loaded (Top-ups)', dayTxns.filter(t=>t.counter==='Reception'&&t.type==='credit').reduce((s,t)=>s+(t.cashAmt||0),0),''],
     ['','',''],
     ['REVENUE BY COUNTER','',''],
@@ -4149,48 +4303,76 @@ function txnInMonth(t, dateStr) {
 }
 
 function getPaymentLabel(t) {
+  // Prefer stored payMethod (set at transaction time)
+  if (t.payMethod === 'upi')  return 'UPI';
+  if (t.payMethod === 'cash') return 'Cash';
+  if (t.payMethod === 'rfid') return 'RFID';
+  // Fallback: infer from description
   const d = (t.desc||'').toLowerCase();
-  if (d.includes('upi')) return 'UPI';
-  if (d.includes('cash')) return 'Cash';
+  if (d.includes('[upi]') || d.includes('upi')) return 'UPI';
+  if (d.includes('[cash]') || d.includes('cash')) return 'Cash';
   if (d.includes('rfid') || d.includes('card') || d.includes('wallet')) return 'RFID';
-  // Debit txns from counter are RFID wallet deductions
+  // Debit txns from non-Reception counters without payMethod = RFID wallet
   if (t.type === 'debit' && t.counter !== 'Reception') return 'RFID';
-  if (t.type === 'credit' && t.counter === 'Reception') {
-    if (d.includes('top') || d.includes('recharge')) return 'Cash/UPI';
-    return 'Cash/UPI';
-  }
+  if (t.type === 'credit' && t.counter === 'Reception') return 'Cash'; // legacy recharges assumed cash
   return 'RFID';
 }
 
 function buildCounterSummary(filteredTxns) {
-  const COUNTERS = ['Bowling','Game Zone','Food & Beverages','Mini Theatre','Courts','Reception'];
+  const COUNTER_ORDER = ['Bowling','Game Zone','Food & Beverages','Mini Theatre','Courts'];
   const allCounters = [...new Set(filteredTxns.map(t=>t.counter))];
-  const counters = [...COUNTERS.filter(c=>allCounters.includes(c)), ...allCounters.filter(c=>!COUNTERS.includes(c))];
+  const counters = [...COUNTER_ORDER.filter(c=>allCounters.includes(c)), ...allCounters.filter(c=>!COUNTER_ORDER.includes(c)&&c!=='Reception')];
 
   let totalCash=0, totalUpi=0, totalRfid=0, grandTotal=0;
 
-  const rows = counters.filter(c=>c!=='Reception').map(c=>{
+  const rows = counters.map(c=>{
     const cTxns = filteredTxns.filter(t=>t.counter===c && t.type==='debit');
     if (!cTxns.length) return null;
-    const rfidAmt  = cTxns.filter(t=>getPaymentLabel(t)==='RFID').reduce((s,t)=>s+(t.cashAmt||0)+(t.bonusAmt||0),0);
-    const cashAmt  = cTxns.filter(t=>getPaymentLabel(t)==='Cash').reduce((s,t)=>s+(t.cashAmt||0),0);
-    const upiAmt   = cTxns.filter(t=>getPaymentLabel(t)==='UPI').reduce((s,t)=>s+(t.cashAmt||0),0);
-    const total    = rfidAmt + cashAmt + upiAmt;
-    totalCash+=cashAmt; totalUpi+=upiAmt; totalRfid+=rfidAmt; grandTotal+=total;
-    return {counter:c, rfid:rfidAmt, cash:cashAmt, upi:upiAmt, total, count:cTxns.length};
+    const rfid = cTxns.filter(t=>getPaymentLabel(t)==='RFID').reduce((s,t)=>s+(t.cashAmt||0)+(t.bonusAmt||0),0);
+    const cash = cTxns.filter(t=>getPaymentLabel(t)==='Cash').reduce((s,t)=>s+(t.cashAmt||0),0);
+    const upi  = cTxns.filter(t=>getPaymentLabel(t)==='UPI').reduce((s,t)=>s+(t.cashAmt||0),0);
+    const total = rfid+cash+upi;
+    totalCash+=cash; totalUpi+=upi; totalRfid+=rfid; grandTotal+=total;
+    return {counter:c, rfid, cash, upi, total, count:cTxns.length};
   }).filter(Boolean);
 
-  // Recharge/topup summary
-  const rechargeTxns = filteredTxns.filter(t=>t.counter==='Reception'&&t.type==='credit'&&(t.desc||'').toLowerCase().includes('top'));
-  const rechargeTotal = rechargeTxns.reduce((s,t)=>s+(t.cashAmt||0),0);
-  const newCards = filteredTxns.filter(t=>t.counter==='Reception'&&t.type==='credit'&&(t.desc||'').toLowerCase().includes('activ')).length;
+  // ── Reception: recharge breakdown by payment method ──
+  const rcpTxns = filteredTxns.filter(t=>t.counter==='Reception'&&t.type==='credit');
+  const rechargeCash = rcpTxns.filter(t=>getPaymentLabel(t)!=='UPI').reduce((s,t)=>s+(t.cashAmt||0),0);
+  const rechargeUpi  = rcpTxns.filter(t=>getPaymentLabel(t)==='UPI').reduce((s,t)=>s+(t.cashAmt||0),0);
+  const rechargeTotal = rechargeCash + rechargeUpi;
+  const newCards = rcpTxns.filter(t=>(t.desc||'').toLowerCase().includes('activ')).length;
   const checkouts = filteredTxns.filter(t=>t.counter==='Reception'&&(t.desc||'').toLowerCase().includes('checkout')).length;
 
-  return {rows, totalCash, totalUpi, totalRfid, grandTotal, rechargeTotal, newCards, checkouts};
+  // ── Walk-in direct cash/UPI (non-RFID sales) ──
+  const walkinTxns = filteredTxns.filter(t=>t.type==='debit'&&(getPaymentLabel(t)==='Cash'||getPaymentLabel(t)==='UPI'));
+  const walkinCash = walkinTxns.filter(t=>getPaymentLabel(t)==='Cash').reduce((s,t)=>s+(t.cashAmt||0),0);
+  const walkinUpi  = walkinTxns.filter(t=>getPaymentLabel(t)==='UPI').reduce((s,t)=>s+(t.cashAmt||0),0);
+
+  // ── Wallet stats ──
+  const walletLoaded = rechargeTotal; // cash put onto cards today
+  const walletSpent  = filteredTxns.filter(t=>t.type==='debit'&&getPaymentLabel(t)==='RFID').reduce((s,t)=>s+(t.cashAmt||0)+(t.bonusAmt||0),0);
+
+  // ── TOTAL CARD BALANCE currently on ALL active cards (liability) ──
+  const totalCardBalance = cards.filter(c=>c.cashBalance>0||c.bonusBalance>0).reduce((s,c)=>s+(c.cashBalance||0)+(c.bonusBalance||0),0);
+  const totalCardCash    = cards.filter(c=>c.cashBalance>0).reduce((s,c)=>s+(c.cashBalance||0),0);
+  const totalCardBonus   = cards.filter(c=>c.bonusBalance>0).reduce((s,c)=>s+(c.bonusBalance||0),0);
+
+  // ── Cash reconciliation ──
+  // What you should have in hand = recharge cash + walk-in cash
+  // What you should have in UPI = recharge UPI + walk-in UPI
+  const reconcileCash = rechargeCash + walkinCash;
+  const reconcileUpi  = rechargeUpi  + walkinUpi;
+
+  return {rows, totalCash, totalUpi, totalRfid, grandTotal,
+          rechargeCash, rechargeUpi, rechargeTotal, newCards, checkouts,
+          walkinCash, walkinUpi, walletLoaded, walletSpent,
+          totalCardBalance, totalCardCash, totalCardBonus,
+          reconcileCash, reconcileUpi};
 }
 
 function renderReport() {
-  const type = document.getElementById('rpt-type').value;
+  const type    = document.getElementById('rpt-type').value;
   const dateStr = document.getElementById('rpt-date').value;
   if (!dateStr) { document.getElementById('rpt-output').innerHTML='<div class="n-cy">Please select a date.</div>'; return; }
 
@@ -4200,7 +4382,7 @@ function renderReport() {
 
   const [yr,mo,dy] = dateStr.split('-');
   const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
-  const moFull = months[parseInt(mo)-1];
+  const moFull   = months[parseInt(mo)-1];
   const periodLabel = type==='daily' ? dy+' '+moFull+' '+yr : moFull+' '+yr;
 
   if (!filtered.length) {
@@ -4208,115 +4390,218 @@ function renderReport() {
     return;
   }
 
-  const {rows, totalCash, totalUpi, totalRfid, grandTotal, rechargeTotal, newCards, checkouts} = buildCounterSummary(filtered);
+  const D = buildCounterSummary(filtered);
+  const fmt2 = v => '₹'+v.toLocaleString('en-IN');
+  const kpi = (lbl,val,color,sub='') =>
+    `<div style="background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:14px 12px;text-align:center;">
+       <div style="font-size:0.68rem;color:var(--mu);font-weight:700;letter-spacing:0.05em;margin-bottom:4px;">${lbl}</div>
+       <div style="font-family:'JetBrains Mono',monospace;font-size:1.35rem;font-weight:800;color:${color};">${val}</div>
+       ${sub?`<div style="font-size:0.7rem;color:var(--mu);margin-top:3px;">${sub}</div>`:''}
+     </div>`;
 
-  const rowsHTML = rows.map(r=>`
+  const counterRows = D.rows.map(r=>`
     <tr>
       <td style="font-weight:600;">${r.counter}</td>
-      <td style="text-align:right;color:var(--gr);">${r.rfid>0?'₹'+r.rfid.toLocaleString('en-IN'):'—'}</td>
-      <td style="text-align:right;color:var(--cy);">${r.cash>0?'₹'+r.cash.toLocaleString('en-IN'):'—'}</td>
-      <td style="text-align:right;color:var(--go);">${r.upi>0?'₹'+r.upi.toLocaleString('en-IN'):'—'}</td>
-      <td style="text-align:right;font-weight:700;">₹${r.total.toLocaleString('en-IN')}</td>
+      <td style="text-align:right;color:#7c3aed;">${r.rfid>0?fmt2(r.rfid):'—'}</td>
+      <td style="text-align:right;color:var(--cy);">${r.cash>0?fmt2(r.cash):'—'}</td>
+      <td style="text-align:right;color:var(--go);">${r.upi>0?fmt2(r.upi):'—'}</td>
+      <td style="text-align:right;font-weight:800;color:var(--tx);">${fmt2(r.total)}</td>
       <td style="text-align:right;color:var(--mu);font-size:0.8rem;">${r.count}</td>
     </tr>`).join('');
 
-  const html = `
-    <div id="report-printable">
-      <div class="card" style="padding:18px;margin-bottom:14px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
-          <div>
-            <div style="font-size:1.15rem;font-weight:800;color:var(--tx);">🏆 LEO CLUB — ${type==='daily'?'DAILY':'MONTHLY'} SALES REPORT</div>
-            <div style="font-size:0.82rem;color:var(--mu);">Managed by The Fern · Junagadh</div>
-            <div style="font-size:0.88rem;font-weight:700;color:var(--cy);margin-top:4px;">Period: ${periodLabel}</div>
-          </div>
-          <div style="text-align:right;font-size:0.75rem;color:var(--mu);">Generated: ${nowStr()}<br>By: ${me?me.name:'—'}</div>
-        </div>
+  // Recharge detail rows
+  const rcpTxns = filtered.filter(t=>t.counter==='Reception'&&t.type==='credit');
+  const rcpRows = rcpTxns.map(t=>`
+    <tr>
+      <td style="font-size:0.78rem;color:var(--mu);">${t.time}</td>
+      <td style="font-weight:600;">${t.customer||'—'}</td>
+      <td>${t.desc||'—'}</td>
+      <td style="text-align:right;color:var(--gr);font-weight:700;">${fmt2(t.cashAmt||0)}</td>
+      <td style="text-align:right;color:var(--go);">${t.bonusAmt>0?'+'+fmt2(t.bonusAmt):'—'}</td>
+      <td style="text-align:center;">
+        <span style="font-size:0.72rem;padding:2px 8px;border-radius:10px;font-weight:700;background:${getPaymentLabel(t)==='UPI'?'#fef3c7;color:#92400e':'#f0fdf4;color:#166534'};">
+          ${getPaymentLabel(t)==='UPI'?'📱 UPI':'💵 Cash'}
+        </span>
+      </td>
+    </tr>`).join('');
 
-        <!-- KPI Row -->
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:18px;">
-          <div style="background:var(--bg2);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.72rem;color:var(--mu);font-weight:700;">TOTAL REVENUE</div>
-            <div style="font-size:1.35rem;font-weight:800;color:var(--gr);">₹${grandTotal.toLocaleString('en-IN')}</div>
-          </div>
-          <div style="background:var(--bg2);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.72rem;color:var(--mu);font-weight:700;">CASH COLLECTED</div>
-            <div style="font-size:1.35rem;font-weight:800;color:var(--cy);">₹${totalCash.toLocaleString('en-IN')}</div>
-          </div>
-          <div style="background:var(--bg2);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.72rem;color:var(--mu);font-weight:700;">UPI COLLECTED</div>
-            <div style="font-size:1.35rem;font-weight:800;color:var(--go);">₹${totalUpi.toLocaleString('en-IN')}</div>
-          </div>
-          <div style="background:var(--bg2);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.72rem;color:var(--mu);font-weight:700;">RFID WALLET</div>
-            <div style="font-size:1.35rem;font-weight:800;color:var(--mg);">₹${totalRfid.toLocaleString('en-IN')}</div>
-          </div>
-          <div style="background:var(--bg2);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.72rem;color:var(--mu);font-weight:700;">RECHARGES</div>
-            <div style="font-size:1.35rem;font-weight:800;color:var(--cy);">₹${rechargeTotal.toLocaleString('en-IN')}</div>
-          </div>
-          <div style="background:var(--bg2);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.72rem;color:var(--mu);font-weight:700;">NEW CARDS</div>
-            <div style="font-size:1.35rem;font-weight:800;color:var(--tx);">${newCards}</div>
-          </div>
-        </div>
+  // Walk-in direct sales
+  const walkinTxns = filtered.filter(t=>t.type==='debit'&&(getPaymentLabel(t)==='Cash'||getPaymentLabel(t)==='UPI'));
+  const walkinRows = walkinTxns.map(t=>`
+    <tr>
+      <td style="font-size:0.78rem;color:var(--mu);">${t.time}</td>
+      <td style="font-weight:600;">${t.customer||'Walk-in'}</td>
+      <td>${t.counter||'—'}</td>
+      <td style="font-size:0.8rem;">${t.desc||'—'}</td>
+      <td style="text-align:right;font-weight:700;">${fmt2(t.cashAmt||0)}</td>
+      <td style="text-align:center;">
+        <span style="font-size:0.72rem;padding:2px 8px;border-radius:10px;font-weight:700;background:${getPaymentLabel(t)==='UPI'?'#fef3c7;color:#92400e':'#f0fdf4;color:#166534'};">
+          ${getPaymentLabel(t)==='UPI'?'📱 UPI':'💵 Cash'}
+        </span>
+      </td>
+    </tr>`).join('');
 
-        <!-- Counter Breakdown Table -->
-        <div style="font-weight:800;font-size:0.88rem;color:var(--tx);margin-bottom:8px;">COUNTER-WISE BREAKDOWN</div>
-        <div style="overflow-x:auto;">
-          <table class="tbl" style="min-width:500px;">
-            <thead>
-              <tr>
-                <th>Counter</th>
-                <th style="text-align:right;">RFID Wallet</th>
-                <th style="text-align:right;">Cash</th>
-                <th style="text-align:right;">UPI</th>
-                <th style="text-align:right;">Total</th>
-                <th style="text-align:right;">Txns</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHTML}
-              <tr style="border-top:2px solid var(--bd);font-weight:800;background:var(--bg2);">
-                <td>GRAND TOTAL</td>
-                <td style="text-align:right;color:var(--mg);">₹${totalRfid.toLocaleString('en-IN')}</td>
-                <td style="text-align:right;color:var(--cy);">₹${totalCash.toLocaleString('en-IN')}</td>
-                <td style="text-align:right;color:var(--go);">₹${totalUpi.toLocaleString('en-IN')}</td>
-                <td style="text-align:right;color:var(--gr);font-size:1.05rem;">₹${grandTotal.toLocaleString('en-IN')}</td>
-                <td style="text-align:right;color:var(--mu);">${rows.reduce((s,r)=>s+r.count,0)}</td>
-              </tr>
-            </tbody>
-          </table>
+  const html = `<div id="report-printable">
+
+  <!-- ── HEADER ── -->
+  <div class="card" style="padding:16px 18px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+    <div>
+      <div style="font-size:1.1rem;font-weight:800;color:var(--tx);">🏆 LEO CLUB — ${type==='daily'?'DAILY':'MONTHLY'} REPORT</div>
+      <div style="font-size:0.82rem;color:var(--mu);">The Fern · Junagadh</div>
+      <div style="font-size:0.9rem;font-weight:700;color:var(--cy);margin-top:3px;">📅 ${periodLabel}</div>
+    </div>
+    <div style="text-align:right;font-size:0.75rem;color:var(--mu);">Generated: ${nowStr()}<br>By: ${me?me.name:'—'}</div>
+  </div>
+
+  <!-- ══ SECTION 1: REVENUE ══ -->
+  <div class="card" style="padding:16px;margin-bottom:12px;">
+    <div style="font-size:0.8rem;font-weight:800;color:var(--tx);letter-spacing:0.04em;margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+      <span style="background:var(--cy);width:4px;height:16px;border-radius:2px;display:inline-block;"></span>
+      SECTION 1 — BUSINESS REVENUE
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px;">
+      ${kpi('TOTAL REVENUE',fmt2(D.grandTotal),'var(--gr)','all payment modes')}
+      ${kpi('RFID WALLET',fmt2(D.totalRfid),'#7c3aed','spent from cards')}
+      ${kpi('DIRECT CASH SALES',fmt2(D.totalCash),'var(--cy)','walk-in cash')}
+      ${kpi('DIRECT UPI SALES',fmt2(D.totalUpi),'var(--go)','walk-in UPI')}
+      ${kpi('TRANSACTIONS',D.rows.reduce((s,r)=>s+r.count,0),'var(--tx)','')}
+      ${kpi('NEW CARDS',D.newCards,'var(--mg)','')}
+    </div>
+
+    <!-- Counter breakdown table -->
+    <div style="font-size:0.78rem;font-weight:700;color:var(--mu);margin-bottom:8px;">COUNTER-WISE BREAKDOWN</div>
+    <div style="overflow-x:auto;">
+      <table class="tbl" style="min-width:480px;">
+        <thead><tr>
+          <th>Counter</th>
+          <th style="text-align:right;">RFID Wallet</th>
+          <th style="text-align:right;">💵 Cash</th>
+          <th style="text-align:right;">📱 UPI</th>
+          <th style="text-align:right;">Total</th>
+          <th style="text-align:right;">Txns</th>
+        </tr></thead>
+        <tbody>
+          ${counterRows}
+          <tr style="border-top:2px solid var(--border);font-weight:800;background:var(--bg);">
+            <td>TOTAL</td>
+            <td style="text-align:right;color:#7c3aed;">${fmt2(D.totalRfid)}</td>
+            <td style="text-align:right;color:var(--cy);">${fmt2(D.totalCash)}</td>
+            <td style="text-align:right;color:var(--go);">${fmt2(D.totalUpi)}</td>
+            <td style="text-align:right;font-size:1rem;color:var(--gr);">${fmt2(D.grandTotal)}</td>
+            <td style="text-align:right;color:var(--mu);">${D.rows.reduce((s,r)=>s+r.count,0)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══ SECTION 2: CASH/UPI YOU SHOULD HAVE IN HAND ══ -->
+  <div class="card" style="padding:16px;margin-bottom:12px;border-color:#bbf7d0;">
+    <div style="font-size:0.8rem;font-weight:800;color:var(--tx);letter-spacing:0.04em;margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+      <span style="background:var(--gr);width:4px;height:16px;border-radius:2px;display:inline-block;"></span>
+      SECTION 2 — CASH &amp; UPI RECONCILIATION (what staff should have collected)
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+      <!-- CASH box -->
+      <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:14px;">
+        <div style="font-size:0.72rem;font-weight:800;color:#166534;letter-spacing:0.05em;margin-bottom:6px;">💵 TOTAL CASH TO COLLECT</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:1.6rem;font-weight:900;color:#15803d;">${fmt2(D.reconcileCash)}</div>
+        <div style="margin-top:8px;font-size:0.78rem;color:#166534;line-height:2;">
+          <div style="display:flex;justify-content:space-between;"><span>Recharges (cash)</span><span style="font-weight:700;">${fmt2(D.rechargeCash)}</span></div>
+          <div style="display:flex;justify-content:space-between;"><span>Walk-in cash sales</span><span style="font-weight:700;">${fmt2(D.walkinCash)}</span></div>
+          <div style="display:flex;justify-content:space-between;border-top:1px solid #86efac;padding-top:4px;font-weight:800;"><span>= Cash in hand</span><span>${fmt2(D.reconcileCash)}</span></div>
         </div>
       </div>
-
-      <!-- Transaction Detail -->
-      <div class="card" style="padding:0;overflow:hidden;">
-        <div style="padding:12px 14px;font-weight:800;font-size:0.88rem;border-bottom:1px solid var(--bd);">FULL TRANSACTION LOG (${filtered.length} entries)</div>
-        <div style="overflow-x:auto;">
-          <table class="tbl" style="min-width:600px;">
-            <thead>
-              <tr><th>Time</th><th>Customer</th><th>Counter</th><th>Description</th><th>Cash</th><th>Bonus</th><th>Type</th></tr>
-            </thead>
-            <tbody>
-              ${filtered.map(t=>`
-                <tr>
-                  <td style="font-size:0.78rem;color:var(--mu);">${t.time}</td>
-                  <td style="font-weight:600;">${t.customer||'—'}</td>
-                  <td><span style="font-size:0.75rem;padding:2px 7px;border-radius:10px;background:var(--bg2);font-weight:700;">${t.counter||'—'}</span></td>
-                  <td style="font-size:0.8rem;">${t.desc||'—'}</td>
-                  <td style="text-align:right;color:${t.type==='credit'?'var(--gr)':'var(--rd)'};">${t.type==='credit'?'+':'-'}₹${(t.cashAmt||0).toLocaleString('en-IN')}</td>
-                  <td style="text-align:right;color:var(--go);">${t.bonusAmt>0?(t.type==='credit'?'+':'-')+'₹'+(t.bonusAmt||0).toLocaleString('en-IN'):'—'}</td>
-                  <td style="font-size:0.75rem;color:var(--mu);">${t.type}</td>
-                </tr>`).join('')}
-            </tbody>
-          </table>
+      <!-- UPI box -->
+      <div style="background:#fffbeb;border:2px solid #fcd34d;border-radius:12px;padding:14px;">
+        <div style="font-size:0.72rem;font-weight:800;color:#92400e;letter-spacing:0.05em;margin-bottom:6px;">📱 TOTAL UPI TO VERIFY</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:1.6rem;font-weight:900;color:#d97706;">${fmt2(D.reconcileUpi)}</div>
+        <div style="margin-top:8px;font-size:0.78rem;color:#92400e;line-height:2;">
+          <div style="display:flex;justify-content:space-between;"><span>Recharges (UPI)</span><span style="font-weight:700;">${fmt2(D.rechargeUpi)}</span></div>
+          <div style="display:flex;justify-content:space-between;"><span>Walk-in UPI sales</span><span style="font-weight:700;">${fmt2(D.walkinUpi)}</span></div>
+          <div style="display:flex;justify-content:space-between;border-top:1px solid #fcd34d;padding-top:4px;font-weight:800;"><span>= UPI in app</span><span>${fmt2(D.reconcileUpi)}</span></div>
         </div>
       </div>
-    </div>`;
+    </div>
+    <div style="background:#f8fafc;border-radius:8px;padding:10px 12px;font-size:0.8rem;color:var(--mu);line-height:1.8;">
+      <b>How to verify:</b> Count your cash drawer — it should be <b style="color:#15803d;">${fmt2(D.reconcileCash)}</b>. Open your UPI app and check today's received payments — total should be <b style="color:#d97706;">${fmt2(D.reconcileUpi)}</b>. Any difference means a missed entry.
+    </div>
+  </div>
+
+  <!-- ══ SECTION 3: CARD BALANCE LIABILITY ══ -->
+  <div class="card" style="padding:16px;margin-bottom:12px;border-color:#bfdbfe;">
+    <div style="font-size:0.8rem;font-weight:800;color:var(--tx);letter-spacing:0.04em;margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+      <span style="background:#2563eb;width:4px;height:16px;border-radius:2px;display:inline-block;"></span>
+      SECTION 3 — RFID CARD WALLET STATUS (current liability)
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px;">
+      ${kpi('TOTAL LOADED TODAY',fmt2(D.walletLoaded),'var(--cy)','cash put on cards')}
+      ${kpi('TOTAL SPENT TODAY',fmt2(D.walletSpent),'#7c3aed','used at counters')}
+      ${kpi('TOTAL CASH BALANCE<br><span style="font-size:0.65rem;font-weight:500;">all active cards</span>',fmt2(D.totalCardCash),'#2563eb','unused cash wallet')}
+      ${kpi('TOTAL BONUS BALANCE<br><span style="font-size:0.65rem;font-weight:500;">all active cards</span>',fmt2(D.totalCardBonus),'var(--go)','bonus (bowling/GZ only)')}
+    </div>
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;font-size:0.8rem;color:#1e40af;line-height:1.8;">
+      <b>Card liability:</b> Guests have <b>${fmt2(D.totalCardCash)}</b> in cash + <b>${fmt2(D.totalCardBonus)}</b> bonus = <b>${fmt2(D.totalCardBalance)}</b> total sitting on cards. This is money already received but not yet earned (guests can still spend it).
+    </div>
+  </div>
+
+  <!-- ══ SECTION 4: RECHARGE DETAIL ══ -->
+  ${rcpTxns.length ? `
+  <div class="card" style="padding:0;overflow:hidden;margin-bottom:12px;">
+    <div style="padding:12px 14px;font-weight:800;font-size:0.85rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <span>RECHARGE LOG (${rcpTxns.length} recharges · ${fmt2(D.rechargeTotal)} total)</span>
+      <span style="font-size:0.75rem;color:var(--mu);">💵 Cash: ${fmt2(D.rechargeCash)} &nbsp;|&nbsp; 📱 UPI: ${fmt2(D.rechargeUpi)}</span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="tbl" style="min-width:500px;">
+        <thead><tr><th>Time</th><th>Guest</th><th>Description</th><th style="text-align:right;">Amount</th><th style="text-align:right;">Bonus</th><th style="text-align:center;">Payment</th></tr></thead>
+        <tbody>${rcpRows}</tbody>
+      </table>
+    </div>
+  </div>` : ''}
+
+  <!-- ══ SECTION 5: WALK-IN DIRECT SALES ══ -->
+  ${walkinTxns.length ? `
+  <div class="card" style="padding:0;overflow:hidden;margin-bottom:12px;">
+    <div style="padding:12px 14px;font-weight:800;font-size:0.85rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <span>DIRECT SALES LOG — Cash &amp; UPI (${walkinTxns.length} entries)</span>
+      <span style="font-size:0.75rem;color:var(--mu);">💵 ${fmt2(D.walkinCash)} &nbsp;|&nbsp; 📱 ${fmt2(D.walkinUpi)}</span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="tbl" style="min-width:520px;">
+        <thead><tr><th>Time</th><th>Guest</th><th>Counter</th><th>Description</th><th style="text-align:right;">Amount</th><th style="text-align:center;">Payment</th></tr></thead>
+        <tbody>${walkinRows}</tbody>
+      </table>
+    </div>
+  </div>` : ''}
+
+  <!-- ══ FULL LOG ══ -->
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="padding:12px 14px;font-weight:800;font-size:0.85rem;border-bottom:1px solid var(--border);">FULL TRANSACTION LOG (${filtered.length} entries)</div>
+    <div style="overflow-x:auto;">
+      <table class="tbl" style="min-width:600px;">
+        <thead><tr><th>Time</th><th>Guest</th><th>Counter</th><th>Description</th><th style="text-align:right;">Cash</th><th style="text-align:right;">Bonus</th><th>Pay</th></tr></thead>
+        <tbody>
+          ${filtered.map(t=>`
+            <tr>
+              <td style="font-size:0.78rem;color:var(--mu);white-space:nowrap;">${t.time}</td>
+              <td style="font-weight:600;">${t.customer||'—'}</td>
+              <td><span style="font-size:0.72rem;padding:2px 6px;border-radius:8px;background:var(--bg);font-weight:700;">${t.counter||'—'}</span></td>
+              <td style="font-size:0.8rem;">${t.desc||'—'}</td>
+              <td style="text-align:right;color:${t.type==='credit'?'var(--gr)':'var(--rd)'};">${t.type==='credit'?'+':'-'}${fmt2(t.cashAmt||0)}</td>
+              <td style="text-align:right;color:var(--go);">${(t.bonusAmt||0)>0?(t.type==='credit'?'+':'-')+'₹'+(t.bonusAmt||0).toLocaleString('en-IN'):'—'}</td>
+              <td style="font-size:0.75rem;">${t.payMethod?('📱 UPI'==='📱 '+t.payMethod.toUpperCase()||t.payMethod==='upi'?'📱':'💵')+(t.payMethod==='upi'?' UPI':t.payMethod==='cash'?' Cash':' RFID'):'—'}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>`;
 
   document.getElementById('rpt-output').innerHTML = html;
 }
 
+function printReport() {
 function printReport() {
   const content = document.getElementById('report-printable');
   if (!content) { toast('Generate a report first', true); return; }
@@ -4667,102 +4952,41 @@ function chgAdminPwd() {
 //  menuV2 = [{id,cat,icon,items:[{name,desc,price,hot}]}]
 // ═══════════════════════════════════════════
 const DEFAULT_MENU_V2 = [
-  {id:'burgers',cat:'Burgers',icon:'🍔',items:[
-    {name:'Peri Peri Burger',desc:'Special peri peri sauce',price:269,hot:true},
-    {name:'Spicy Barbeque King Burger',desc:'Super spicy barbeque sauce',price:299,hot:true},
-    {name:'Indian Delight Burger',desc:'Herb potato patty',price:299,hot:false},
-    {name:'Punjabi Tadka Burger',desc:'Punjabi flavour',price:299,hot:false},
-    {name:'Double Tikki Burger',desc:'Two herb potato patties',price:329,hot:false},
-    {name:'Mexican King Burger',desc:'Mexican tangy taste',price:299,hot:true},
-    {name:'Rawr King Burger',desc:'Seven special sauces',price:329,hot:true},
-    {name:'Royal Paneer Grilled Burger',desc:'Grilled paneer, makhani gravy',price:329,hot:false},
+  {id:'bakery',cat:'Bakery',icon:'🧁',items:[
+    {name:'Donuts',desc:'Fresh baked daily',price:49,hot:false},
+    {name:'Cupcake',desc:'Soft & delicious',price:69,hot:false},
+    {name:'Muffins',desc:'Soft & fluffy',price:69,hot:false},
+    {name:'Pastry',desc:'Flaky & buttery',price:99,hot:false},
+    {name:'Brownie',desc:'Rich chocolate brownie',price:99,hot:false},
   ]},
-  {id:'fries',cat:'Fries',icon:'🍟',items:[
-    {name:'Salted French Fries',desc:'100g · With cheese dip',price:129,hot:false},
-    {name:'Peri Peri Fries',desc:'100g · With cheese dip',price:129,hot:true},
-    {name:'Cheese Masala Fries',desc:'140g · With special dip',price:169,hot:false},
-    {name:'Italian Loaded Fries',desc:'170g · Orange cheese sauce, jalapeño, olives',price:169,hot:false},
-    {name:'Rawr Sizzling Fries',desc:'170g · Peri peri in orange cheese sauce',price:199,hot:true},
+  {id:'sandwich',cat:'Sandwich',icon:'🥪',items:[
+    {name:'Veg Sandwich',desc:'Classic veg filling',price:99,hot:false},
+    {name:'Cheese Sandwich',desc:'Loaded with cheese',price:119,hot:false},
+    {name:'Coleslaw Sandwich',desc:'Creamy coleslaw',price:119,hot:false},
   ]},
-  {id:'wraps',cat:'Wraps',icon:'🌯',items:[
-    {name:'Classic Veg Wrap',desc:'Orange cheese sauce, onion, capsicum',price:229,hot:false},
-    {name:'Mexican Salsa Wrap',desc:'Nachos, cheese sauce, jalapeño',price:229,hot:true},
-    {name:'Italian Club Wrap',desc:'Jalapeño, olives, red paprika, capsicum',price:229,hot:false},
-    {name:'Spicy Paneer Wrap',desc:'Paneer, red paprika, capsicum',price:229,hot:false},
-    {name:'Veggie Grilled Club Wrap',desc:'Sautéed paneer, tandoori spices',price:269,hot:false},
-    {name:'Veg Quesadillas',desc:'Onion, mushroom, bell peppers & cheese',price:269,hot:false},
-    {name:'Mexican Fajitas',desc:'Bell peppers, paprika, cumin',price:229,hot:false},
+  {id:'snacks',cat:'Snacks',icon:'🥐',items:[
+    {name:'Samosa (2 Pcs)',desc:'Crispy golden samosa',price:80,hot:true},
+    {name:'Chinese Puff',desc:'Chinese spiced puff pastry',price:60,hot:true},
+    {name:'Masala Puff',desc:'Spiced masala puff pastry',price:60,hot:true},
   ]},
-  {id:'nachos',cat:'Nachos',icon:'🫓',items:[
-    {name:'Nachos with Cheese Dip',desc:'Classic all-time favourite',price:199,hot:true},
-    {name:'Cheesy Delight Nachos',desc:'Orange cheese sauce, salsa, corn',price:199,hot:false},
-    {name:'Cheese Exotic Loaded Nachos',desc:'Jalapeño, olives, red paprika, corn',price:229,hot:false},
+  {id:'coffee',cat:'Coffee',icon:'☕',items:[
+    {name:'Cold Coffee',desc:'Chilled & refreshing',price:149,hot:false},
+    {name:'Ice Coffee',desc:'Iced blended coffee',price:149,hot:false},
+    {name:'Americano (Hot)',desc:'Bold & strong',price:149,hot:false},
+    {name:'Cappuccino',desc:'Frothy espresso & milk',price:149,hot:false},
+    {name:'Espresso Coffee (Hot)',desc:'Strong shot of espresso',price:149,hot:false},
+    {name:'Red Bull Coffee',desc:'Energy + espresso blend',price:299,hot:false},
+    {name:'Tonic Water Coffee',desc:'Refreshing coffee tonic',price:299,hot:false},
   ]},
-  {id:'pizza',cat:'Pizza',icon:'🍕',items:[
-    {name:'Margherita Pizza',desc:'200g · Special sauce & cheese',price:329,hot:false},
-    {name:'Capsicum & Onion Pizza',desc:'215g · With cheese',price:399,hot:false},
-    {name:'Corn & Capsicum Pizza',desc:'215g · With cheese',price:399,hot:false},
-    {name:'Jalapeño & Onion Pizza',desc:'200g · With cheese',price:399,hot:false},
-    {name:'Hot Cheese Pizza',desc:'215g · Red paprika, jalapeño, spicy sauce',price:399,hot:true},
-    {name:'Veg Exotica Pizza',desc:'215g · Olives, jalapeño, capsicum',price:399,hot:false},
-    {name:'Paneer Peri Peri Pizza',desc:'215g · Paneer, capsicum, special sauce',price:399,hot:true},
-    {name:'Paneer Makhani Pizza',desc:'215g · Makhani sauce, paneer, corn',price:399,hot:false},
-    {name:'Four Cheese Pizza',desc:'215g · Four types of cheese',price:429,hot:true},
-    {name:'Thin Crust Pizza',desc:'215g · Choice of toppings',price:429,hot:false},
+  {id:'beverages',cat:'Beverages',icon:'🥤',items:[
+    {name:'Soft Drinks',desc:'Pepsi / 7Up / Mirinda',price:60,hot:false},
+    {name:'Mineral Water',desc:'500ml chilled',price:20,hot:false},
+    {name:'Red Bull',desc:'250ml energy drink',price:149,hot:false},
   ]},
-  {id:'garlic',cat:'Garlic Bread',icon:'🥖',items:[
-    {name:'Cheese Garlic Bread',desc:'100g · Special garlic paste & cheese',price:269,hot:false},
-    {name:'Cheese Chilly Garlic Bread',desc:'100g · Chilly cheese & garlic paste',price:269,hot:false},
-    {name:'Supreme Treat Garlic Bread',desc:'120g · Corn, jalapeño, onion & cheese',price:269,hot:true},
-    {name:'Orange Cheese Mint Garlic Bread',desc:'100g · Orange cheese, mint leaves',price:269,hot:false},
-    {name:'Paneer Makhani Garlic Bread',desc:'120g · Makhani sauce, paneer cubes',price:269,hot:false},
-  ]},
-  {id:'pasta',cat:'Pasta',icon:'🍝',items:[
-    {name:'Arrabbiata Pasta',desc:'200g · Spicy red sauce, garlic bread',price:399,hot:true},
-    {name:'Alfredo Pasta',desc:'200g · Creamy white sauce, garlic bread',price:399,hot:false},
-    {name:'Pink Sauce Pasta',desc:'200g · Cheesy pink sauce, garlic bread',price:399,hot:false},
-    {name:'Peri Peri Pasta',desc:'200g · Peri peri sauce, garlic bread',price:399,hot:false},
-    {name:'Maggie Masala Fusion Pasta',desc:'200g · Maggie masala, garlic bread',price:399,hot:false},
-  ]},
-  {id:'sandwich',cat:'Sandwiches',icon:'🥪',items:[
-    {name:'Veg Sandwich',desc:'280g · Tomato, cucumber, potato, green chutney',price:229,hot:false},
-    {name:'Cheese Chutney',desc:'100g · Cheese & green chutney',price:229,hot:false},
-    {name:'Cheese Chutney Potato',desc:'120g · Potato in cheese sauce',price:229,hot:false},
-    {name:'Veg Szechuan Sandwich',desc:'100g · Szechuan sauce, cheese',price:229,hot:false},
-    {name:'Veg Grilled Sandwich',desc:'120g · Grilled with potato stuffing',price:329,hot:false},
-    {name:'Veg Chilly Garlic Sandwich',desc:'100g · Garlic butter, chilly sauce',price:329,hot:false},
-    {name:'Veg Mexican Sandwich',desc:'120g · Mexican sauces & vegetables',price:329,hot:false},
-    {name:'Veg Paneer Toofani',desc:'180g · Paneer, olives, jalapeño',price:329,hot:true},
-    {name:'Greek Pita Sandwich',desc:'Toasted pita, veggies, cocktail sauce',price:329,hot:false},
-    {name:'French Loaf Salad',desc:'French loaf, creamy vegetable salsa',price:329,hot:false},
-  ]},
-  {id:'coffee',cat:'Tea & Coffee',icon:'☕',items:[
-    {name:'Hot Coffee',desc:'Americano / Cappuccino / Latte / Espresso',price:169,hot:false},
-    {name:'Hot Tea',desc:'Masala Chai / English Breakfast / Assam',price:129,hot:false},
-    {name:'Peach Iced Tea',desc:'',price:149,hot:false},
-    {name:'Lemon Iced Tea',desc:'',price:149,hot:false},
-    {name:'Mint Ice Tea',desc:'',price:149,hot:false},
-    {name:'Iced Coffee with Milk',desc:'',price:149,hot:false},
-    {name:'Cold Coffee with Ice Cream',desc:'',price:149,hot:false},
-  ]},
-  {id:'mocktail',cat:'Mocktails',icon:'🍹',items:[
-    {name:'Classic Mint Mojito',desc:'180ml · Mint leaves, lemon, sweetened',price:199,hot:false},
-    {name:'Blue Lagoon',desc:'180ml · Blue citrusy fizzy drink',price:199,hot:false},
-    {name:'Blue Hawaiian',desc:'180ml · Pineapple, blue curacao, cream',price:199,hot:false},
-    {name:'Watermelon Lemonade',desc:'180ml · Fresh watermelon sweet & sour',price:199,hot:false},
-    {name:'Strawberry Pina Colada',desc:'180ml · Pineapple, strawberry, coconut',price:199,hot:false},
-    {name:'Roy Rogers',desc:'180ml · Cola with grenadine syrup',price:199,hot:false},
-    {name:'Shirley Temple',desc:'180ml · Ginger lemonade, grenadine',price:199,hot:false},
-  ]},
-  {id:'shakes',cat:'Shakes & Juice',icon:'🥤',items:[
-    {name:'Red Bull Energy Drink',desc:'250ml · Original · Energizes body & mind',price:200,hot:false},
-    {name:'Fresh Juice',desc:'180ml · Orange / Pineapple / Watermelon / Sweet Lime',price:129,hot:false},
-    {name:'Coconut Hot Fudge Milkshake',desc:'180ml',price:199,hot:false},
-    {name:'Peanut Butter Milkshake',desc:'180ml',price:199,hot:false},
-    {name:'Banana Milkshake',desc:'180ml',price:199,hot:false},
-    {name:'Brownie Milkshake',desc:'180ml',price:199,hot:false},
-    {name:'Oreo Milkshake',desc:'180ml',price:199,hot:false},
-    {name:'Chocolate Banana Milkshake',desc:'180ml',price:199,hot:false},
+  {id:'combos',cat:'Combo Offers',icon:'🎁',items:[
+    {name:'Sandwich + Cold Coffee',desc:'Save ₹10!',price:229,hot:false},
+    {name:'Samosa + Coffee',desc:'Tea time combo',price:199,hot:false},
+    {name:'Brownie + Ice Coffee',desc:'Sweet & chilled',price:219,hot:false},
   ]},
 ];
 

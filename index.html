@@ -517,6 +517,12 @@ select option{background:#fff;color:var(--tx);}
     <div id="scr-reception" class="scr active">
       <div class="si">
 
+        <!-- Today's Business KPI bar -->
+        <div id="today-sales-bar" style="display:none;margin-bottom:14px;">
+          <div style="font-size:0.72rem;font-weight:800;color:var(--mu);letter-spacing:0.05em;margin-bottom:8px;">&#127942; TODAY'S BUSINESS</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;" id="today-kpi-cards"></div>
+        </div>
+
         <!-- Today's Court Bookings Banner -->
         <div id="reception-bk-panel" style="margin-bottom:14px;">
           <div class="sl">📅 Today's Court Bookings</div>
@@ -2745,8 +2751,35 @@ function buildFoodHtml(am) {
 }
 
 /* ─── KOT PRINT ─── */
+// _lastBillCharged tracks whether current bill has been charged already
+let _lastBillCharged = false;
+function markBillCharged() { _lastBillCharged = true; }
+
 function printKOT() {
   if (!foodBill.length) { toast('Add items first', true); return; }
+  // Auto-charge if not already charged
+  if (!_lastBillCharged) {
+    // Charge first (walk-in cash by default if no RFID card tapped)
+    const rawT = foodBill.reduce((s,b)=>s+b.price*b.qty,0);
+    const {final:chgTotal, discAmt:chgDisc} = applyDiscount(rawT, foodDiscMode, 'food-disc-val', 'food-disc-preview');
+    const desc2 = foodBill.map(b=>b.name+(b.qty>1?' x'+b.qty:'')).join(', ');
+    const ref2 = (document.getElementById('food-ref')||{}).value||'';
+    if (foodPayMode === 'rfid' && zoneCards.food) {
+      // RFID card is tapped - charge to card then print
+      doChargeFood(zoneCards.food, chgTotal, desc2+(chgDisc>0?' [disc]':'')+' | Ref: '+ref2, chgDisc);
+      _lastBillCharged = true;
+    } else if (foodPayMode !== 'rfid') {
+      // Walk-in cash/UPI - record transaction then print
+      const pm = foodPayMode||'cash';
+      const wt = {id:Date.now(),time:nowStr(),customer:'Walk-in',rfid:'WALKIN',counter:'Food & Beverages',
+        desc:desc2+(chgDisc>0?' [disc -'+fmt(chgDisc)+']':'')+' ['+(pm.toUpperCase())+']'+(ref2?' | Ref: '+ref2:''),
+        cashAmt:chgTotal,bonusAmt:0,type:'debit',cashBalAfter:0,bonusBalAfter:0,payMethod:pm,discAmt:chgDisc||0};
+      txns.unshift(wt); lsSet(LS.txns,txns);
+      if(db&&syncOk) db.ref('txns/'+wt.id).set(wt);
+      _lastBillCharged = true;
+    }
+    // else: RFID mode but no card tapped — print without charging
+  }
   const tableNo   = (document.getElementById('kot-table-no')  ||{}).value || '';
   const guestName = (document.getElementById('kot-guest-name')||{}).value || '';
   const rawTotal  = foodBill.reduce((s,b)=>s+b.price*b.qty,0);
@@ -3335,7 +3368,8 @@ function renderBill() {
 }
 function removeBillItem(i) { foodBill.splice(i,1); renderBill(); }
 function changeBillQty(i,delta) { if(!foodBill[i]) return; foodBill[i].qty+=delta; if(foodBill[i].qty<=0) foodBill.splice(i,1); renderBill(); }
-function clearBill() { foodBill=[]; renderBill(); }
+function clearBill() {
+  _lastBillCharged = false; foodBill=[]; renderBill(); }
 
 function chargeFoodBill() {
   const rawTotal = foodBill.reduce((s,b)=>s+b.price*b.qty,0);
@@ -3365,6 +3399,7 @@ function chargeFoodBill() {
           desc:fullDesc,cashAmt:chargeTotal,bonusAmt:0,type:'debit',cashBalAfter:0,bonusBalAfter:0,payMethod:foodPayMode,ref:ref,discAmt:discAmt||0};
         txns.unshift(wt); lsSet(LS.txns,txns);
         if(db&&syncOk) db.ref('txns/'+wt.id).set(wt);
+        markBillCharged();
         toast(fmt(chargeTotal)+' '+modeLabel+' sale recorded ✓');
         clearBill(); document.getElementById('food-ref').value='';
         refreshFoodTxns(); closeM();
@@ -3402,6 +3437,7 @@ function chargeFoodBill() {
   );
 }
 function doChargeFood(card, total, desc, discAmt) {
+  markBillCharged();
   card.cashBalance -= total; card.spent += total;
   persist('cards');
   addTxnRecord(card, 'Food & Beverages', desc, total, 0, 'debit');
@@ -4219,216 +4255,226 @@ function txnInMonth(t, dateStr) {
 }
 
 function getPaymentLabel(t) {
+  if (t.payMethod === 'upi')  return 'UPI';
+  if (t.payMethod === 'cash') return 'Cash';
+  if (t.payMethod === 'rfid') return 'RFID';
   const d = (t.desc||'').toLowerCase();
-  if (d.includes('upi')) return 'UPI';
-  if (d.includes('cash')) return 'Cash';
-  if (d.includes('rfid') || d.includes('card') || d.includes('wallet')) return 'RFID';
-  // Debit txns from counter are RFID wallet deductions
+  if (d.includes('[upi]') || d.includes('upi')) return 'UPI';
+  if (d.includes('[cash]') || d.includes('cash')) return 'Cash';
   if (t.type === 'debit' && t.counter !== 'Reception') return 'RFID';
-  if (t.type === 'credit' && t.counter === 'Reception') {
-    if (d.includes('top') || d.includes('recharge')) return 'Cash/UPI';
-    return 'Cash/UPI';
-  }
+  if (t.type === 'credit' && t.counter === 'Reception') return 'Cash';
   return 'RFID';
 }
 
 function buildCounterSummary(filteredTxns) {
-  const COUNTERS = ['Bowling','Game Zone','Food & Beverages','Mini Theatre','Courts','Reception'];
+  const COUNTER_ORDER = ['Bowling','Game Zone','Food & Beverages','Mini Theatre','Courts'];
   const allCounters = [...new Set(filteredTxns.map(t=>t.counter))];
-  const counters = [...COUNTERS.filter(c=>allCounters.includes(c)), ...allCounters.filter(c=>!COUNTERS.includes(c))];
-
+  const counters = [...COUNTER_ORDER.filter(c=>allCounters.includes(c)), ...allCounters.filter(c=>!COUNTER_ORDER.includes(c)&&c!=='Reception')];
   let totalCash=0, totalUpi=0, totalRfid=0, grandTotal=0;
-
-  const rows = counters.filter(c=>c!=='Reception').map(c=>{
+  const rows = counters.map(c=>{
     const cTxns = filteredTxns.filter(t=>t.counter===c && t.type==='debit');
     if (!cTxns.length) return null;
-    const rfidAmt  = cTxns.filter(t=>getPaymentLabel(t)==='RFID').reduce((s,t)=>s+(t.cashAmt||0)+(t.bonusAmt||0),0);
-    const cashAmt  = cTxns.filter(t=>getPaymentLabel(t)==='Cash').reduce((s,t)=>s+(t.cashAmt||0),0);
-    const upiAmt   = cTxns.filter(t=>getPaymentLabel(t)==='UPI').reduce((s,t)=>s+(t.cashAmt||0),0);
-    const total    = rfidAmt + cashAmt + upiAmt;
-    totalCash+=cashAmt; totalUpi+=upiAmt; totalRfid+=rfidAmt; grandTotal+=total;
-    return {counter:c, rfid:rfidAmt, cash:cashAmt, upi:upiAmt, total, count:cTxns.length};
+    const rfid = cTxns.filter(t=>getPaymentLabel(t)==='RFID').reduce((s,t)=>s+(t.cashAmt||0)+(t.bonusAmt||0),0);
+    const cash = cTxns.filter(t=>getPaymentLabel(t)==='Cash').reduce((s,t)=>s+(t.cashAmt||0),0);
+    const upi  = cTxns.filter(t=>getPaymentLabel(t)==='UPI').reduce((s,t)=>s+(t.cashAmt||0),0);
+    const total = rfid+cash+upi;
+    totalCash+=cash; totalUpi+=upi; totalRfid+=rfid; grandTotal+=total;
+    return {counter:c, rfid, cash, upi, total, count:cTxns.length};
   }).filter(Boolean);
-
-  // Recharge/topup summary
-  const rechargeTxns = filteredTxns.filter(t=>t.counter==='Reception'&&t.type==='credit'&&(t.desc||'').toLowerCase().includes('top'));
-  const rechargeTotal = rechargeTxns.reduce((s,t)=>s+(t.cashAmt||0),0);
-  const newCards = filteredTxns.filter(t=>t.counter==='Reception'&&t.type==='credit'&&(t.desc||'').toLowerCase().includes('activ')).length;
+  const rcpTxns = filteredTxns.filter(t=>t.counter==='Reception'&&t.type==='credit');
+  const rechargeCash = rcpTxns.filter(t=>getPaymentLabel(t)!=='UPI').reduce((s,t)=>s+(t.cashAmt||0),0);
+  const rechargeUpi  = rcpTxns.filter(t=>getPaymentLabel(t)==='UPI').reduce((s,t)=>s+(t.cashAmt||0),0);
+  const rechargeTotal = rechargeCash + rechargeUpi;
+  const newCards = rcpTxns.filter(t=>(t.desc||'').toLowerCase().includes('activ')).length;
   const checkouts = filteredTxns.filter(t=>t.counter==='Reception'&&(t.desc||'').toLowerCase().includes('checkout')).length;
-
-  // ── HISSAB: Cash physically collected vs wallet used ──
-  // Cash in = all Reception credits (recharges + new card activations)
-  // + walk-in cash/UPI food/counter sales
-  const walletLoaded  = filteredTxns.filter(t=>t.counter==='Reception'&&t.type==='credit').reduce((s,t)=>s+(t.cashAmt||0),0);
-  const walletSpent   = filteredTxns.filter(t=>t.type==='debit'&&getPaymentLabel(t)==='RFID').reduce((s,t)=>s+(t.cashAmt||0)+(t.bonusAmt||0),0);
-  const walkinCash    = filteredTxns.filter(t=>t.type==='debit'&&(getPaymentLabel(t)==='Cash'||getPaymentLabel(t)==='UPI')).reduce((s,t)=>s+(t.cashAmt||0),0);
-  const cashIn        = walletLoaded + walkinCash;
-  const unspent       = Math.max(0, walletLoaded - walletSpent);
-  const hissab = { cashIn, walletLoaded, walletSpent, unspent, walkinCash };
-
-  return {rows, totalCash, totalUpi, totalRfid, grandTotal, rechargeTotal, newCards, checkouts, hissab};
+  const walkinTxns = filteredTxns.filter(t=>t.type==='debit'&&(getPaymentLabel(t)==='Cash'||getPaymentLabel(t)==='UPI'));
+  const walkinCash = walkinTxns.filter(t=>getPaymentLabel(t)==='Cash').reduce((s,t)=>s+(t.cashAmt||0),0);
+  const walkinUpi  = walkinTxns.filter(t=>getPaymentLabel(t)==='UPI').reduce((s,t)=>s+(t.cashAmt||0),0);
+  const walletLoaded = rechargeTotal;
+  const walletSpent  = filteredTxns.filter(t=>t.type==='debit'&&getPaymentLabel(t)==='RFID').reduce((s,t)=>s+(t.cashAmt||0)+(t.bonusAmt||0),0);
+  const totalCardCash  = cards.filter(c=>c.cashBalance>0).reduce((s,c)=>s+(c.cashBalance||0),0);
+  const totalCardBonus = cards.filter(c=>c.bonusBalance>0).reduce((s,c)=>s+(c.bonusBalance||0),0);
+  const totalCardBalance = totalCardCash + totalCardBonus;
+  const reconcileCash = rechargeCash + walkinCash;
+  const reconcileUpi  = rechargeUpi  + walkinUpi;
+  const hissab = {cashIn:reconcileCash+reconcileUpi, walletLoaded, walletSpent, unspent:Math.max(0,walletLoaded-walletSpent), walkinCash};
+  return {rows, totalCash, totalUpi, totalRfid, grandTotal,
+    rechargeCash, rechargeUpi, rechargeTotal, newCards, checkouts,
+    walkinCash, walkinUpi, walletLoaded, walletSpent,
+    totalCardBalance, totalCardCash, totalCardBonus,
+    reconcileCash, reconcileUpi, hissab};
 }
 
 function renderReport() {
-  const type = document.getElementById('rpt-type').value;
+  const type    = document.getElementById('rpt-type').value;
   const dateStr = document.getElementById('rpt-date').value;
-  if (!dateStr) { document.getElementById('rpt-output').innerHTML='<div class="n-cy">Please select a date.</div>'; return; }
-
-  const filtered = type==='daily'
-    ? txns.filter(t=>txnInDate(t,dateStr))
-    : txns.filter(t=>txnInMonth(t,dateStr));
-
+  if (!dateStr) { document.getElementById('rpt-output').innerHTML='<div class="n-cy">Select a date first.</div>'; return; }
+  const filtered = type==='daily' ? txns.filter(t=>txnInDate(t,dateStr)) : txns.filter(t=>txnInMonth(t,dateStr));
   const [yr,mo,dy] = dateStr.split('-');
   const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
-  const moFull = months[parseInt(mo)-1];
-  const periodLabel = type==='daily' ? dy+' '+moFull+' '+yr : moFull+' '+yr;
-
+  const periodLabel = type==='daily' ? dy+' '+months[parseInt(mo)-1]+' '+yr : months[parseInt(mo)-1]+' '+yr;
+  const rptEl = document.getElementById('rpt-output');
   if (!filtered.length) {
-    document.getElementById('rpt-output').innerHTML=`<div class="card" style="padding:20px;text-align:center;color:var(--mu);">No transactions found for ${periodLabel}.</div>`;
+    rptEl.innerHTML='<div class="card" style="padding:20px;text-align:center;color:var(--mu);">No transactions for '+periodLabel+'.</div>';
     return;
   }
+  const D = buildCounterSummary(filtered);
+  const f2 = v => '&#8377;'+Number(v||0).toLocaleString('en-IN');
 
-  const {rows, totalCash, totalUpi, totalRfid, grandTotal, rechargeTotal, newCards, checkouts, hissab} = buildCounterSummary(filtered);
+  // ── Counter breakdown rows ────────────────────────────────────
+  const counterRows = D.rows.map(r=>'<tr>'
+    +'<td style="font-weight:600;">'+r.counter+'</td>'
+    +'<td style="text-align:right;color:#7c3aed;">'+(r.rfid>0?f2(r.rfid):'—')+'</td>'
+    +'<td style="text-align:right;color:var(--cy);">'+(r.cash>0?f2(r.cash):'—')+'</td>'
+    +'<td style="text-align:right;color:var(--go);">'+(r.upi>0?f2(r.upi):'—')+'</td>'
+    +'<td style="text-align:right;font-weight:800;">'+f2(r.total)+'</td>'
+    +'<td style="text-align:right;color:var(--mu);font-size:0.8rem;">'+r.count+'</td>'
+    +'</tr>').join('');
 
-  const rowsHTML = rows.map(r=>`
-    <tr>
-      <td style="font-weight:600;">${r.counter}</td>
-      <td style="text-align:right;color:var(--gr);">${r.rfid>0?'₹'+r.rfid.toLocaleString('en-IN'):'—'}</td>
-      <td style="text-align:right;color:var(--cy);">${r.cash>0?'₹'+r.cash.toLocaleString('en-IN'):'—'}</td>
-      <td style="text-align:right;color:var(--go);">${r.upi>0?'₹'+r.upi.toLocaleString('en-IN'):'—'}</td>
-      <td style="text-align:right;font-weight:700;">₹${r.total.toLocaleString('en-IN')}</td>
-      <td style="text-align:right;color:var(--mu);font-size:0.8rem;">${r.count}</td>
-    </tr>`).join('');
+  // ── Recharge log ──────────────────────────────────────────────
+  const rcpTxns = filtered.filter(t=>t.counter==='Reception'&&t.type==='credit');
+  const rcpRows = rcpTxns.map(t=>'<tr>'
+    +'<td style="font-size:0.78rem;white-space:nowrap;">'+t.time+'</td>'
+    +'<td style="font-weight:600;">'+(t.customer||'—')+'</td>'
+    +'<td>'+(t.desc||'—')+'</td>'
+    +'<td style="text-align:right;color:var(--gr);font-weight:700;">'+f2(t.cashAmt||0)+'</td>'
+    +'<td>'+(t.bonusAmt>0?'<span style="color:var(--go);">+'+f2(t.bonusAmt)+'</span>':'—')+'</td>'
+    +'<td><span style="font-size:0.72rem;padding:2px 8px;border-radius:10px;font-weight:700;background:'+(getPaymentLabel(t)==='UPI'?'#fef3c7;color:#92400e':'#f0fdf4;color:#166534')+';">'+(getPaymentLabel(t)==='UPI'?'&#128241; UPI':'&#128181; Cash')+'</span></td>'
+    +'</tr>').join('');
 
-  const html = `
-    <div id="report-printable">
-      <div class="card" style="padding:18px;margin-bottom:14px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
-          <div>
-            <div style="font-size:1.15rem;font-weight:800;color:var(--tx);">🏆 LEO CLUB — ${type==='daily'?'DAILY':'MONTHLY'} SALES REPORT</div>
-            <div style="font-size:0.82rem;color:var(--mu);">Managed by The Fern · Junagadh</div>
-            <div style="font-size:0.88rem;font-weight:700;color:var(--cy);margin-top:4px;">Period: ${periodLabel}</div>
-          </div>
-          <div style="text-align:right;font-size:0.75rem;color:var(--mu);">Generated: ${nowStr()}<br>By: ${me?me.name:'—'}</div>
-        </div>
+  // ── All txns log ──────────────────────────────────────────────
+  const allRows = filtered.map(t=>'<tr>'
+    +'<td style="font-size:0.75rem;white-space:nowrap;color:var(--mu);">'+t.time+'</td>'
+    +'<td style="font-weight:600;">'+(t.customer||'—')+'</td>'
+    +'<td style="font-size:0.78rem;">'+(t.counter||'—')+'</td>'
+    +'<td style="font-size:0.78rem;">'+(t.desc||'—')+'</td>'
+    +'<td style="text-align:right;color:'+(t.type==='credit'?'var(--gr)':'var(--rd)')+';">'+
+      (t.type==='credit'?'+':'-')+f2(t.cashAmt||0)+'</td>'
+    +'<td style="text-align:right;color:var(--go);">'+(t.bonusAmt>0?(t.type==='credit'?'+':'-')+'&#8377;'+(t.bonusAmt||0).toLocaleString('en-IN'):'—')+'</td>'
+    +'<td style="font-size:0.75rem;">'+(t.payMethod==='upi'?'&#128241; UPI':t.payMethod==='cash'?'&#128181; Cash':'&#128251; RFID')+'</td>'
+    +'</tr>').join('');
 
-        <!-- KPI Row -->
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:18px;">
-          <div style="background:var(--bg2);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.72rem;color:var(--mu);font-weight:700;">TOTAL REVENUE</div>
-            <div style="font-size:1.35rem;font-weight:800;color:var(--gr);">₹${grandTotal.toLocaleString('en-IN')}</div>
-          </div>
-          <div style="background:var(--bg2);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.72rem;color:var(--mu);font-weight:700;">CASH COLLECTED</div>
-            <div style="font-size:1.35rem;font-weight:800;color:var(--cy);">₹${totalCash.toLocaleString('en-IN')}</div>
-          </div>
-          <div style="background:var(--bg2);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.72rem;color:var(--mu);font-weight:700;">UPI COLLECTED</div>
-            <div style="font-size:1.35rem;font-weight:800;color:var(--go);">₹${totalUpi.toLocaleString('en-IN')}</div>
-          </div>
-          <div style="background:var(--bg2);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.72rem;color:var(--mu);font-weight:700;">RFID WALLET</div>
-            <div style="font-size:1.35rem;font-weight:800;color:var(--mg);">₹${totalRfid.toLocaleString('en-IN')}</div>
-          </div>
-          <div style="background:var(--bg2);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.72rem;color:var(--mu);font-weight:700;">RECHARGES (CASH IN)</div>
-            <div style="font-size:1.35rem;font-weight:800;color:var(--cy);">₹${rechargeTotal.toLocaleString('en-IN')}</div>
-          </div>
-          <div style="background:var(--bg2);border-radius:10px;padding:12px;text-align:center;">
-            <div style="font-size:0.72rem;color:var(--mu);font-weight:700;">NEW CARDS</div>
-            <div style="font-size:1.35rem;font-weight:800;color:var(--tx);">${newCards}</div>
-          </div>
-        </div>
+  rptEl.innerHTML = '<div id="report-printable">'
 
-        <!-- ── HISSAB CLARITY SECTION ── -->
-        <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:14px;margin-bottom:16px;">
-          <div style="font-size:0.75rem;font-weight:800;color:#92400e;letter-spacing:0.06em;margin-bottom:10px;">⚖ DAILY HISSAB — CASH CLARITY</div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;">
-            <div style="background:#fff;border-radius:8px;padding:10px;border:1px solid #fde68a;">
-              <div style="font-size:0.68rem;color:#92400e;font-weight:700;letter-spacing:0.05em;margin-bottom:3px;">💰 CASH PHYSICALLY COLLECTED</div>
-              <div style="font-family:'JetBrains Mono',monospace;font-size:1.2rem;font-weight:800;color:#d97706;">₹${hissab.cashIn.toLocaleString('en-IN')}</div>
-              <div style="font-size:0.7rem;color:#a16207;margin-top:2px;">Recharges + New cards + Walk-in Cash/UPI</div>
-            </div>
-            <div style="background:#fff;border-radius:8px;padding:10px;border:1px solid #fde68a;">
-              <div style="font-size:0.68rem;color:#92400e;font-weight:700;letter-spacing:0.05em;margin-bottom:3px;">🃏 WALLET LOADED (TOTAL)</div>
-              <div style="font-family:'JetBrains Mono',monospace;font-size:1.2rem;font-weight:800;color:#d97706;">₹${hissab.walletLoaded.toLocaleString('en-IN')}</div>
-              <div style="font-size:0.7rem;color:#a16207;margin-top:2px;">Total credited to GZ cards today</div>
-            </div>
-            <div style="background:#fff;border-radius:8px;padding:10px;border:1px solid #fde68a;">
-              <div style="font-size:0.68rem;color:#92400e;font-weight:700;letter-spacing:0.05em;margin-bottom:3px;">🎳 WALLET SPENT (ACTUAL USE)</div>
-              <div style="font-family:'JetBrains Mono',monospace;font-size:1.2rem;font-weight:800;color:#1a7a5e;">₹${hissab.walletSpent.toLocaleString('en-IN')}</div>
-              <div style="font-size:0.7rem;color:#166534;margin-top:2px;">RFID wallet debits at all counters</div>
-            </div>
-            <div style="background:#fff;border-radius:8px;padding:10px;border:1px solid ${hissab.unspent>0?'#fde68a':'#bbf7d0'};">
-              <div style="font-size:0.68rem;color:#92400e;font-weight:700;letter-spacing:0.05em;margin-bottom:3px;">💳 WALLET BALANCE (UNUSED)</div>
-              <div style="font-family:'JetBrains Mono',monospace;font-size:1.2rem;font-weight:800;color:#2563eb;">₹${hissab.unspent.toLocaleString('en-IN')}</div>
-              <div style="font-size:0.7rem;color:#1e40af;margin-top:2px;">Loaded − Spent = Still on cards</div>
-            </div>
-          </div>
-          <div style="margin-top:10px;padding:9px 12px;background:#fff;border-radius:8px;border:1px solid #fde68a;font-size:0.8rem;color:#92400e;line-height:1.7;">
-            <b>📋 Account Team Note:</b> 
-            Cash collected = <b>₹${hissab.cashIn.toLocaleString('en-IN')}</b> (what staff received in hand). 
-            Of this, ₹${hissab.walletLoaded.toLocaleString('en-IN')} was loaded on cards — but guests have only used 
-            <b>₹${hissab.walletSpent.toLocaleString('en-IN')}</b> so far. 
-            ₹${hissab.unspent.toLocaleString('en-IN')} is still sitting on guest cards (liability).
-          </div>
-        </div>
+    // ── HEADER ──
+    +'<div class="card" style="padding:16px 18px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">'
+    +'<div><div style="font-size:1.1rem;font-weight:800;">&#127942; LEO CLUB &mdash; '+(type==='daily'?'DAILY':'MONTHLY')+' REPORT</div>'
+    +'<div style="font-size:0.85rem;font-weight:700;color:var(--cy);margin-top:3px;">&#128197; '+periodLabel+'</div></div>'
+    +'<div style="text-align:right;font-size:0.75rem;color:var(--mu);">Generated: '+nowStr()+'<br>By: '+(me?me.name:'—')+'</div>'
+    +'</div>'
 
-        <!-- Counter Breakdown Table -->
-        <div style="font-weight:800;font-size:0.88rem;color:var(--tx);margin-bottom:8px;">COUNTER-WISE BREAKDOWN</div>
-        <div style="overflow-x:auto;">
-          <table class="tbl" style="min-width:500px;">
-            <thead>
-              <tr>
-                <th>Counter</th>
-                <th style="text-align:right;">RFID Wallet</th>
-                <th style="text-align:right;">Cash</th>
-                <th style="text-align:right;">UPI</th>
-                <th style="text-align:right;">Total</th>
-                <th style="text-align:right;">Txns</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHTML}
-              <tr style="border-top:2px solid var(--bd);font-weight:800;background:var(--bg2);">
-                <td>GRAND TOTAL</td>
-                <td style="text-align:right;color:var(--mg);">₹${totalRfid.toLocaleString('en-IN')}</td>
-                <td style="text-align:right;color:var(--cy);">₹${totalCash.toLocaleString('en-IN')}</td>
-                <td style="text-align:right;color:var(--go);">₹${totalUpi.toLocaleString('en-IN')}</td>
-                <td style="text-align:right;color:var(--gr);font-size:1.05rem;">₹${grandTotal.toLocaleString('en-IN')}</td>
-                <td style="text-align:right;color:var(--mu);">${rows.reduce((s,r)=>s+r.count,0)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+    // ══ FIGURE A: LOADED (Money collected from customers) ══
+    +'<div class="card" style="padding:16px;margin-bottom:12px;border-left:4px solid var(--cy);">'
+    +'<div style="font-size:0.72rem;font-weight:800;color:var(--mu);letter-spacing:.06em;margin-bottom:10px;">&#128260; FIGURE A &mdash; LOADED TODAY (Cash &amp; UPI collected from customers)</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px;">'
+    +'<div style="background:var(--bg);border:2px solid #86efac;border-radius:10px;padding:12px;text-align:center;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">TOTAL LOADED</div>'
+    +'<div style="font-family:monospace;font-size:1.5rem;font-weight:900;color:var(--gr);">'+f2(D.rechargeTotal)+'</div>'
+    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">Cash collected into RFID cards</div>'
+    +'</div>'
+    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">&#128181; RECHARGE CASH</div>'
+    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:var(--cy);">'+f2(D.rechargeCash)+'</div>'
+    +'</div>'
+    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">&#128241; RECHARGE UPI</div>'
+    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:var(--go);">'+f2(D.rechargeUpi)+'</div>'
+    +'</div>'
+    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">DIRECT SALES</div>'
+    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:#7c3aed;">'+f2(D.walkinCash+D.walkinUpi)+'</div>'
+    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">Walk-in without card</div>'
+    +'</div>'
+    +'</div>'
 
-      <!-- Transaction Detail -->
-      <div class="card" style="padding:0;overflow:hidden;">
-        <div style="padding:12px 14px;font-weight:800;font-size:0.88rem;border-bottom:1px solid var(--bd);">FULL TRANSACTION LOG (${filtered.length} entries)</div>
-        <div style="overflow-x:auto;">
-          <table class="tbl" style="min-width:600px;">
-            <thead>
-              <tr><th>Time</th><th>Customer</th><th>Counter</th><th>Description</th><th>Cash</th><th>Bonus</th><th>Type</th></tr>
-            </thead>
-            <tbody>
-              ${filtered.map(t=>`
-                <tr>
-                  <td style="font-size:0.78rem;color:var(--mu);">${t.time}</td>
-                  <td style="font-weight:600;">${t.customer||'—'}</td>
-                  <td><span style="font-size:0.75rem;padding:2px 7px;border-radius:10px;background:var(--bg2);font-weight:700;">${t.counter||'—'}</span></td>
-                  <td style="font-size:0.8rem;">${t.desc||'—'}</td>
-                  <td style="text-align:right;color:${t.type==='credit'?'var(--gr)':'var(--rd)'};">${t.type==='credit'?'+':'-'}₹${(t.cashAmt||0).toLocaleString('en-IN')}</td>
-                  <td style="text-align:right;color:var(--go);">${t.bonusAmt>0?(t.type==='credit'?'+':'-')+'₹'+(t.bonusAmt||0).toLocaleString('en-IN'):'—'}</td>
-                  <td style="font-size:0.75rem;color:var(--mu);">${t.type}</td>
-                </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>`;
+    // ══ FIGURE B: SPENT (Actual consumption) ══
+    +'<div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px;">'
+    +'<div style="font-size:0.72rem;font-weight:800;color:var(--mu);letter-spacing:.06em;margin-bottom:10px;">&#127377; FIGURE B &mdash; ACTUALLY SPENT (RFID deductions from counters)</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;">'
+    +'<div style="background:var(--bg);border:2px solid #bfdbfe;border-radius:10px;padding:12px;text-align:center;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">TOTAL SPENT (RFID)</div>'
+    +'<div style="font-family:monospace;font-size:1.5rem;font-weight:900;color:#2563eb;">'+f2(D.totalRfid)+'</div>'
+    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">Deducted from cards today</div>'
+    +'</div>'
+    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">DIRECT CASH SALES</div>'
+    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:var(--cy);">'+f2(D.walkinCash)+'</div>'
+    +'</div>'
+    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">DIRECT UPI SALES</div>'
+    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:var(--go);">'+f2(D.walkinUpi)+'</div>'
+    +'</div>'
+    +'<div style="background:var(--bg);border:2px solid #bbf7d0;border-radius:10px;padding:12px;text-align:center;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">TOTAL REVENUE</div>'
+    +'<div style="font-family:monospace;font-size:1.5rem;font-weight:900;color:var(--gr);">'+f2(D.grandTotal)+'</div>'
+    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">RFID + Direct</div>'
+    +'</div>'
+    +'</div>'
+    +'</div></div>'
 
-  document.getElementById('rpt-output').innerHTML = html;
+    // ══ FIGURE C: LIABILITY ══
+    +'<div class="card" style="padding:16px;margin-bottom:12px;border-left:4px solid #7c3aed;">'
+    +'<div style="font-size:0.72rem;font-weight:800;color:var(--mu);letter-spacing:.06em;margin-bottom:10px;">&#128251; FIGURE C &mdash; LIABILITY (Balance on ALL active cards)</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px;">'
+    +'<div style="background:var(--bg);border:2px solid #ddd6fe;border-radius:10px;padding:12px;text-align:center;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">TOTAL LIABILITY</div>'
+    +'<div style="font-family:monospace;font-size:1.5rem;font-weight:900;color:#7c3aed;">'+f2(D.totalCardBalance)+'</div>'
+    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">Paid but not yet spent</div>'
+    +'</div>'
+    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">CASH BALANCE</div>'
+    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:var(--cy);">'+f2(D.totalCardCash)+'</div>'
+    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">On all cards right now</div>'
+    +'</div>'
+    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">BONUS BALANCE</div>'
+    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:var(--go);">'+f2(D.totalCardBonus)+'</div>'
+    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">Bonus credits on cards</div>'
+    +'</div>'
+    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">ACTIVE CARDS</div>'
+    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:var(--tx);">'+cards.filter(c=>c.active&&(c.cashBalance>0||c.bonusBalance>0)).length+'</div>'
+    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">With remaining balance</div>'
+    +'</div>'
+    +'</div>'
+    // Opening / Closing reconciliation
+    +'<div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:12px;font-size:0.82rem;line-height:2;color:#4c1d95;">'
+    +'<b>&#128200; Balance Check:</b><br>'
+    +'Opening liability (before today) = Closing liability + Loaded today &minus; Spent today<br>'
+    +'<span style="font-size:0.8rem;color:var(--mu);">Today: Loaded <b style="color:var(--cy);">'+f2(D.rechargeTotal)+'</b> &rarr; Spent <b style="color:#2563eb;">'+f2(D.walletSpent)+'</b> &rarr; Unspent from today <b style="color:#7c3aed;">'+f2(Math.max(0,D.rechargeTotal-D.walletSpent))+'</b> (now part of liability)</span>'
+    +'</div>'
+    +'</div>'
+
+    // ── Counter breakdown ──
+    +'<div class="card" style="padding:16px;margin-bottom:12px;">'
+    +'<div style="font-size:0.72rem;font-weight:800;color:var(--mu);letter-spacing:.06em;margin-bottom:10px;">COUNTER BREAKDOWN</div>'
+    +'<div style="overflow-x:auto;"><table class="tbl" style="min-width:480px;">'
+    +'<thead><tr><th>Counter</th><th style="text-align:right;">&#128251; RFID</th><th style="text-align:right;">&#128181; Cash</th><th style="text-align:right;">&#128241; UPI</th><th style="text-align:right;">Total</th><th style="text-align:right;">Txns</th></tr></thead>'
+    +'<tbody>'+counterRows
+    +'<tr style="border-top:2px solid var(--border);font-weight:800;background:var(--bg);">'
+    +'<td>TOTAL</td><td style="text-align:right;color:#7c3aed;">'+f2(D.totalRfid)+'</td>'
+    +'<td style="text-align:right;color:var(--cy);">'+f2(D.totalCash)+'</td>'
+    +'<td style="text-align:right;color:var(--go);">'+f2(D.totalUpi)+'</td>'
+    +'<td style="text-align:right;color:var(--gr);font-weight:900;">'+f2(D.grandTotal)+'</td>'
+    +'<td style="text-align:right;color:var(--mu);">'+D.rows.reduce((s,r)=>s+r.count,0)+'</td>'
+    +'</tr></tbody></table></div></div>'
+
+    // ── Recharge log ──
+    +(rcpTxns.length ? '<div class="card" style="padding:0;overflow:hidden;margin-bottom:12px;">'
+    +'<div style="padding:12px 14px;font-weight:800;font-size:0.85rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;">'
+    +'<span>RECHARGE LOG ('+rcpTxns.length+') &mdash; '+f2(D.rechargeTotal)+'</span>'
+    +'<span style="font-size:0.75rem;color:var(--mu);">&#128181; '+f2(D.rechargeCash)+' &nbsp;|&nbsp; &#128241; '+f2(D.rechargeUpi)+'</span></div>'
+    +'<div style="overflow-x:auto;"><table class="tbl" style="min-width:500px;">'
+    +'<thead><tr><th>Time</th><th>Guest</th><th>Description</th><th style="text-align:right;">Cash</th><th style="text-align:right;">Bonus</th><th>Pay</th></tr></thead>'
+    +'<tbody>'+rcpRows+'</tbody></table></div></div>' : '')
+
+    // ── Full log ──
+    +'<div class="card" style="padding:0;overflow:hidden;">'
+    +'<div style="padding:12px 14px;font-weight:800;font-size:0.85rem;border-bottom:1px solid var(--border);">FULL TRANSACTION LOG ('+filtered.length+')</div>'
+    +'<div style="overflow-x:auto;"><table class="tbl" style="min-width:580px;">'
+    +'<thead><tr><th>Time</th><th>Guest</th><th>Counter</th><th>Description</th><th style="text-align:right;">Cash</th><th style="text-align:right;">Bonus</th><th>Pay</th></tr></thead>'
+    +'<tbody>'+allRows+'</tbody></table></div></div>'
+    +'</div>';
 }
 
 function printReport() {
@@ -4781,104 +4827,28 @@ function chgAdminPwd() {
 //  menuV2 = [{id,cat,icon,items:[{name,desc,price,hot}]}]
 // ═══════════════════════════════════════════
 const DEFAULT_MENU_V2 = [
-  {id:'burgers',cat:'Burgers',icon:'🍔',items:[
-    {name:'Peri Peri Burger',desc:'Special peri peri sauce',price:269,hot:true},
-    {name:'Spicy Barbeque King Burger',desc:'Super spicy barbeque sauce',price:299,hot:true},
-    {name:'Indian Delight Burger',desc:'Herb potato patty',price:299,hot:false},
-    {name:'Punjabi Tadka Burger',desc:'Punjabi flavour',price:299,hot:false},
-    {name:'Double Tikki Burger',desc:'Two herb potato patties',price:329,hot:false},
-    {name:'Mexican King Burger',desc:'Mexican tangy taste',price:299,hot:true},
-    {name:'Rawr King Burger',desc:'Seven special sauces',price:329,hot:true},
-    {name:'Royal Paneer Grilled Burger',desc:'Grilled paneer, makhani gravy',price:329,hot:false},
+  {cat:'Bakery', items:[
+    {name:'Donuts',price:49},{name:'Cupcake',price:69},{name:'Muffins',price:69},
+    {name:'Pastry',price:99},{name:'Brownie',price:99}
   ]},
-  {id:'fries',cat:'Fries',icon:'🍟',items:[
-    {name:'Salted French Fries',desc:'100g · With cheese dip',price:129,hot:false},
-    {name:'Peri Peri Fries',desc:'100g · With cheese dip',price:129,hot:true},
-    {name:'Cheese Masala Fries',desc:'140g · With special dip',price:169,hot:false},
-    {name:'Italian Loaded Fries',desc:'170g · Orange cheese sauce, jalapeño, olives',price:169,hot:false},
-    {name:'Rawr Sizzling Fries',desc:'170g · Peri peri in orange cheese sauce',price:199,hot:true},
+  {cat:'Sandwich', items:[
+    {name:'Veg Sandwich',price:99},{name:'Cheese Sandwich',price:119},{name:'Coleslaw Sandwich',price:119}
   ]},
-  {id:'wraps',cat:'Wraps',icon:'🌯',items:[
-    {name:'Classic Veg Wrap',desc:'Orange cheese sauce, onion, capsicum',price:229,hot:false},
-    {name:'Mexican Salsa Wrap',desc:'Nachos, cheese sauce, jalapeño',price:229,hot:true},
-    {name:'Italian Club Wrap',desc:'Jalapeño, olives, red paprika, capsicum',price:229,hot:false},
-    {name:'Spicy Paneer Wrap',desc:'Paneer, red paprika, capsicum',price:229,hot:false},
-    {name:'Veggie Grilled Club Wrap',desc:'Sautéed paneer, tandoori spices',price:269,hot:false},
-    {name:'Veg Quesadillas',desc:'Onion, mushroom, bell peppers & cheese',price:269,hot:false},
-    {name:'Mexican Fajitas',desc:'Bell peppers, paprika, cumin',price:229,hot:false},
+  {cat:'Snacks', items:[
+    {name:'Samosa (2 Pcs)',price:80},{name:'Chinese Puff',price:60},{name:'Masala Puff',price:60}
   ]},
-  {id:'nachos',cat:'Nachos',icon:'🫓',items:[
-    {name:'Nachos with Cheese Dip',desc:'Classic all-time favourite',price:199,hot:true},
-    {name:'Cheesy Delight Nachos',desc:'Orange cheese sauce, salsa, corn',price:199,hot:false},
-    {name:'Cheese Exotic Loaded Nachos',desc:'Jalapeño, olives, red paprika, corn',price:229,hot:false},
+  {cat:'Coffee', items:[
+    {name:'Cold Coffee',price:149},{name:'Ice Coffee',price:149},{name:'Americano (Hot)',price:149},
+    {name:'Cappuccino',price:149},{name:'Espresso Coffee (Hot)',price:149},
+    {name:'Red Bull Coffee',price:299},{name:'Tonic Water Coffee',price:299}
   ]},
-  {id:'pizza',cat:'Pizza',icon:'🍕',items:[
-    {name:'Margherita Pizza',desc:'200g · Special sauce & cheese',price:329,hot:false},
-    {name:'Capsicum & Onion Pizza',desc:'215g · With cheese',price:399,hot:false},
-    {name:'Corn & Capsicum Pizza',desc:'215g · With cheese',price:399,hot:false},
-    {name:'Jalapeño & Onion Pizza',desc:'200g · With cheese',price:399,hot:false},
-    {name:'Hot Cheese Pizza',desc:'215g · Red paprika, jalapeño, spicy sauce',price:399,hot:true},
-    {name:'Veg Exotica Pizza',desc:'215g · Olives, jalapeño, capsicum',price:399,hot:false},
-    {name:'Paneer Peri Peri Pizza',desc:'215g · Paneer, capsicum, special sauce',price:399,hot:true},
-    {name:'Paneer Makhani Pizza',desc:'215g · Makhani sauce, paneer, corn',price:399,hot:false},
-    {name:'Four Cheese Pizza',desc:'215g · Four types of cheese',price:429,hot:true},
-    {name:'Thin Crust Pizza',desc:'215g · Choice of toppings',price:429,hot:false},
+  {cat:'Beverages', items:[
+    {name:'Soft Drinks',price:60},{name:'Mineral Water',price:20},{name:'Red Bull',price:149}
   ]},
-  {id:'garlic',cat:'Garlic Bread',icon:'🥖',items:[
-    {name:'Cheese Garlic Bread',desc:'100g · Special garlic paste & cheese',price:269,hot:false},
-    {name:'Cheese Chilly Garlic Bread',desc:'100g · Chilly cheese & garlic paste',price:269,hot:false},
-    {name:'Supreme Treat Garlic Bread',desc:'120g · Corn, jalapeño, onion & cheese',price:269,hot:true},
-    {name:'Orange Cheese Mint Garlic Bread',desc:'100g · Orange cheese, mint leaves',price:269,hot:false},
-    {name:'Paneer Makhani Garlic Bread',desc:'120g · Makhani sauce, paneer cubes',price:269,hot:false},
-  ]},
-  {id:'pasta',cat:'Pasta',icon:'🍝',items:[
-    {name:'Arrabbiata Pasta',desc:'200g · Spicy red sauce, garlic bread',price:399,hot:true},
-    {name:'Alfredo Pasta',desc:'200g · Creamy white sauce, garlic bread',price:399,hot:false},
-    {name:'Pink Sauce Pasta',desc:'200g · Cheesy pink sauce, garlic bread',price:399,hot:false},
-    {name:'Peri Peri Pasta',desc:'200g · Peri peri sauce, garlic bread',price:399,hot:false},
-    {name:'Maggie Masala Fusion Pasta',desc:'200g · Maggie masala, garlic bread',price:399,hot:false},
-  ]},
-  {id:'sandwich',cat:'Sandwiches',icon:'🥪',items:[
-    {name:'Veg Sandwich',desc:'280g · Tomato, cucumber, potato, green chutney',price:229,hot:false},
-    {name:'Cheese Chutney',desc:'100g · Cheese & green chutney',price:229,hot:false},
-    {name:'Cheese Chutney Potato',desc:'120g · Potato in cheese sauce',price:229,hot:false},
-    {name:'Veg Szechuan Sandwich',desc:'100g · Szechuan sauce, cheese',price:229,hot:false},
-    {name:'Veg Grilled Sandwich',desc:'120g · Grilled with potato stuffing',price:329,hot:false},
-    {name:'Veg Chilly Garlic Sandwich',desc:'100g · Garlic butter, chilly sauce',price:329,hot:false},
-    {name:'Veg Mexican Sandwich',desc:'120g · Mexican sauces & vegetables',price:329,hot:false},
-    {name:'Veg Paneer Toofani',desc:'180g · Paneer, olives, jalapeño',price:329,hot:true},
-    {name:'Greek Pita Sandwich',desc:'Toasted pita, veggies, cocktail sauce',price:329,hot:false},
-    {name:'French Loaf Salad',desc:'French loaf, creamy vegetable salsa',price:329,hot:false},
-  ]},
-  {id:'coffee',cat:'Tea & Coffee',icon:'☕',items:[
-    {name:'Hot Coffee',desc:'Americano / Cappuccino / Latte / Espresso',price:169,hot:false},
-    {name:'Hot Tea',desc:'Masala Chai / English Breakfast / Assam',price:129,hot:false},
-    {name:'Peach Iced Tea',desc:'',price:149,hot:false},
-    {name:'Lemon Iced Tea',desc:'',price:149,hot:false},
-    {name:'Mint Ice Tea',desc:'',price:149,hot:false},
-    {name:'Iced Coffee with Milk',desc:'',price:149,hot:false},
-    {name:'Cold Coffee with Ice Cream',desc:'',price:149,hot:false},
-  ]},
-  {id:'mocktail',cat:'Mocktails',icon:'🍹',items:[
-    {name:'Classic Mint Mojito',desc:'180ml · Mint leaves, lemon, sweetened',price:199,hot:false},
-    {name:'Blue Lagoon',desc:'180ml · Blue citrusy fizzy drink',price:199,hot:false},
-    {name:'Blue Hawaiian',desc:'180ml · Pineapple, blue curacao, cream',price:199,hot:false},
-    {name:'Watermelon Lemonade',desc:'180ml · Fresh watermelon sweet & sour',price:199,hot:false},
-    {name:'Strawberry Pina Colada',desc:'180ml · Pineapple, strawberry, coconut',price:199,hot:false},
-    {name:'Roy Rogers',desc:'180ml · Cola with grenadine syrup',price:199,hot:false},
-    {name:'Shirley Temple',desc:'180ml · Ginger lemonade, grenadine',price:199,hot:false},
-  ]},
-  {id:'shakes',cat:'Shakes & Juice',icon:'🥤',items:[
-    {name:'Red Bull Energy Drink',desc:'250ml · Original · Energizes body & mind',price:200,hot:false},
-    {name:'Fresh Juice',desc:'180ml · Orange / Pineapple / Watermelon / Sweet Lime',price:129,hot:false},
-    {name:'Coconut Hot Fudge Milkshake',desc:'180ml',price:199,hot:false},
-    {name:'Peanut Butter Milkshake',desc:'180ml',price:199,hot:false},
-    {name:'Banana Milkshake',desc:'180ml',price:199,hot:false},
-    {name:'Brownie Milkshake',desc:'180ml',price:199,hot:false},
-    {name:'Oreo Milkshake',desc:'180ml',price:199,hot:false},
-    {name:'Chocolate Banana Milkshake',desc:'180ml',price:199,hot:false},
-  ]},
-];
+  {cat:'Combo Offers', items:[
+    {name:'Sandwich + Cold Coffee',price:229},{name:'Samosa + Coffee',price:199},{name:'Brownie + Ice Coffee',price:219}
+  ]}
+];  // end DEFAULT_MENU_V2
 
 let menuV2 = null; // loaded from Firebase or default
 let activeMenuCat = null; // currently selected category id in editor
@@ -7267,133 +7237,31 @@ function showGuestSection(section) {
 }
 
 function renderTodaysSales() {
-  const filter = (document.getElementById('sales-date-filter')||{}).value || 'today';
-
-  const debitTxns  = txns.filter(t => t.type === 'debit' && txnMatchesFilter(t, filter));
-  const creditTxns = txns.filter(t => t.type === 'credit' && t.counter === 'Reception' && txnMatchesFilter(t, filter));
-
-  // Walk-in txns = rfid is 'WALKIN' — actual cash/UPI collected at counter
-  const walkinDebitTxns = debitTxns.filter(t => t.rfid === 'WALKIN');
-  const rfidDebitTxns   = debitTxns.filter(t => t.rfid !== 'WALKIN');
-
-  const walkinCash  = walkinDebitTxns.filter(t => (t.payMethod||'cash') === 'cash').reduce((s,t) => s + (t.cashAmt||0), 0);
-  const walkinUPI   = walkinDebitTxns.filter(t => t.payMethod === 'upi').reduce((s,t) => s + (t.cashAmt||0), 0);
-  const rfidCash    = rfidDebitTxns.reduce((s,t) => s + (t.cashAmt||0), 0);
-  const rfidBonus   = rfidDebitTxns.reduce((s,t) => s + (t.bonusAmt||0), 0);
-
-  const totalRevenue   = debitTxns.reduce((s,t) => s + (t.cashAmt||0) + (t.bonusAmt||0), 0);
-  const totalCollected = creditTxns.reduce((s,t) => s + (t.cashAmt||0), 0);
-
-  // Update KPIs
-  const set = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
-  set('kpi-revenue',     fmt(totalRevenue));
-  set('kpi-cash',        fmt(walkinCash));
-  set('kpi-upi',         fmt(walkinUPI));
-  set('kpi-rfid-wallet', fmt(rfidCash));
-  set('kpi-bonus-used',  fmt(rfidBonus));
-  set('dash-rev-preview', fmt(totalRevenue));
-  set('kpi-txns-sub', debitTxns.length + ' transaction' + (debitTxns.length !== 1 ? 's' : ''));
-
-  // kpi-pm-breakdown kept hidden for JS compat
-  const pmBreak = document.getElementById('kpi-pm-breakdown');
-  if (pmBreak) pmBreak.innerHTML = '';
-
-  // ── Counter revenue bars ──
-  const counterColors = {'Bowling':'#7c3aed','Game Zone':'#d97706','Food & Beverages':'#16a34a','Food':'#16a34a','Theatre':'#2563eb','Reception':'#1a7a5e'};
-  const counterMap = {};
-  debitTxns.forEach(t => {
-    const key = t.counter || 'Other';
-    if (!counterMap[key]) counterMap[key] = 0;
-    counterMap[key] += (t.cashAmt||0) + (t.bonusAmt||0);
+  const bar = document.getElementById('today-sales-bar');
+  const kpiEl = document.getElementById('today-kpi-cards');
+  if (!bar || !kpiEl) return;
+  const today = getTodayDateKey();
+  const todayTxns = txns.filter(t => {
+    const d = (t.time||'').split(' ')[0];
+    return d === today || (t.time||'').startsWith(today);
   });
-  const counterEntries = Object.entries(counterMap).sort((a,b)=>b[1]-a[1]);
-  const maxAmt = counterEntries.length ? counterEntries[0][1] : 1;
-  const barsEl = document.getElementById('sales-counter-bars');
-  if (barsEl) {
-    if (!counterEntries.length) {
-      barsEl.innerHTML = '<div style="font-size:0.78rem;color:var(--mu);padding:6px 0;">No activity yet</div>';
-    } else {
-      barsEl.innerHTML = counterEntries.map(([name, amt]) => {
-        const col = counterColors[name] || '#64748b';
-        const pct = Math.max(4, Math.round((amt / maxAmt) * 100));
-        return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
-          +'<div style="width:90px;font-size:0.72rem;font-weight:700;color:var(--tx);flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+name+'</div>'
-          +'<div style="flex:1;height:18px;background:#f1f5f9;border-radius:4px;overflow:hidden;">'
-          +'<div style="width:'+pct+'%;height:100%;background:'+col+';border-radius:4px;transition:width 0.3s;"></div>'
-          +'</div>'
-          +'<div style="width:60px;font-size:0.72rem;font-weight:800;color:'+col+';text-align:right;font-family:JetBrains Mono,monospace;">'+fmt(amt)+'</div>'
-          +'</div>';
-      }).join('');
-    }
-  }
-
-  // ── Build guest maps ──
-  const cardGuestMap   = {}; // RFID card (hotel + GZ + regular)
-  const walkinTxns     = []; // WALKIN rfid
-
-  debitTxns.forEach(t => {
-    if (t.rfid === 'WALKIN') {
-      walkinTxns.push(t);
-      return;
-    }
-    const key = t.rfid || t.customer || 'unknown';
-    if (!cardGuestMap[key]) {
-      const cardObj = cards.find(c => c.rfid === key);
-      cardGuestMap[key] = {
-        name: t.customer, rfid: t.rfid||'',
-        cardObj,
-        type: classifyRfid(t.rfid, cardObj),
-        cashSpent:0, bonusSpent:0, txnCount:0
-      };
-    }
-    cardGuestMap[key].cashSpent  += (t.cashAmt||0);
-    cardGuestMap[key].bonusSpent += (t.bonusAmt||0);
-    cardGuestMap[key].txnCount++;
-    // Track last transaction time for sort-by-recent
-    const ts = t.ts || t.id || 0;
-    if (!cardGuestMap[key].lastTxnTime || ts > cardGuestMap[key].lastTxnTime) {
-      cardGuestMap[key].lastTxnTime = ts;
-      cardGuestMap[key].lastTxnTimeStr = t.time || '';
-    }
-  });
-
-  const allCardRows = Object.values(cardGuestMap).sort((a,b) => (b.cashSpent+b.bonusSpent)-(a.cashSpent+a.bonusSpent));
-  const hotelRows   = allCardRows.filter(g => g.type === 'hotel');
-  const gzRows      = allCardRows.filter(g => g.type === 'gz');
-
-  // Group walk-ins
-  const walkinMap = {};
-  walkinTxns.forEach(t => {
-    const key = (t.customer||'Walk-in') + '|' + (t.payMethod||'');
-    if (!walkinMap[key]) walkinMap[key] = {name:t.customer||'Walk-in', payMethod:t.payMethod||'cash', cashSpent:0, txnCount:0};
-    walkinMap[key].cashSpent += (t.cashAmt||0);
-    walkinMap[key].txnCount++;
-  });
-  const walkinRows = Object.values(walkinMap).sort((a,b)=>b.cashSpent-a.cashSpent);
-
-  // ── Segment KPIs ──
-  const hotelRev  = hotelRows.reduce((s,g)=>s+g.cashSpent+g.bonusSpent,0);
-  const gzRev     = gzRows.reduce((s,g)=>s+g.cashSpent+g.bonusSpent,0);
-  const walkinRev = walkinRows.reduce((s,g)=>s+g.cashSpent,0);
-  const cardRev   = allCardRows.reduce((s,g)=>s+g.cashSpent+g.bonusSpent,0);
-
-  set('kpi-hotel-rev',   fmt(hotelRev));
-  set('kpi-hotel-count', hotelRows.length + ' guest' + (hotelRows.length!==1?'s':''));
-  set('kpi-walkin-rev',  fmt(walkinRev));
-  set('kpi-walkin-count',walkinTxns.length + ' txn' + (walkinTxns.length!==1?'s':''));
-  set('kpi-gz-rev',      fmt(gzRev));
-  set('kpi-gz-count',    gzRows.length + ' guest' + (gzRows.length!==1?'s':''));
-  set('kpi-card-rev',    fmt(cardRev));
-  set('kpi-card-count',  allCardRows.length + ' guest' + (allCardRows.length!==1?'s':''));
-
-  // Store for tab switching
-  _lastGuestRows = { all: allCardRows, hotel: hotelRows, gz: gzRows, walkin: walkinRows };
-
-  _renderGuestTable(_lastGuestRows[guestSectionActive] || [], guestSectionActive);
+  if (!todayTxns.length) { bar.style.display='none'; return; }
+  bar.style.display = 'block';
+  const D = buildCounterSummary(todayTxns);
+  const f = v => '&#8377;' + v.toLocaleString('en-IN');
+  const kpi = (lbl, val, color, icon) =>
+    '<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">'+icon+' '+lbl+'</div>'
+    +'<div style="font-family:monospace;font-size:1.1rem;font-weight:800;color:'+color+';">'+val+'</div>'
+    +'</div>';
+  kpiEl.innerHTML =
+    kpi('TOTAL', f(D.grandTotal), 'var(--gr)', '&#127942;') +
+    kpi('RFID', f(D.totalRfid), '#7c3aed', '&#128251;') +
+    kpi('CASH', f(D.reconcileCash), 'var(--cy)', '&#128181;') +
+    kpi('UPI', f(D.reconcileUpi), 'var(--go)', '&#128241;') +
+    kpi('RECHARGE', f(D.rechargeTotal), 'var(--cy)', '&#128260;') +
+    kpi('TXN COUNT', D.rows.reduce((s,r)=>s+r.count,0)+' txns', 'var(--tx)', '&#128202;');
 }
-
-let guestSortBy = 'spend'; // 'spend' | 'recent' | 'name'
-let guestTableExpanded = false;
 
 function toggleGuestTable() {
   guestTableExpanded = !guestTableExpanded;

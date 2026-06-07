@@ -541,7 +541,7 @@ select option{background:#fff;color:var(--tx);}
                 </div>
                 <div>
                   <div style="font-size:0.85rem;font-weight:700;color:var(--go);">🏨 Resort Room Guest</div>
-                  <div style="font-size:0.72rem;color:var(--mu);">Use room key card · ₹100 bonus auto-loaded · no normal bonus</div>
+                  <div style="font-size:0.72rem;color:var(--mu);">Use room key card · No recharge bonus · direct billing</div>
                 </div>
               </div>
               <div id="room-number-wrap" style="display:none;">
@@ -1484,6 +1484,9 @@ const FB_CFG = {
 //  LOCAL STORAGE KEYS (backup)
 // ═══════════════════════════════════════════
 const LS = {cards:'lc5_cards',txns:'lc5_txns',menu:'lc5_menu',prices:'lc5_prices',amenities:'lc5_am',deleted:'lc5_deleted_cards',theatreSeats:'lc5_theatre_seats',theatreBookings:'lc5_theatre_bk',showSchedule:'lc5_show_schedule',members:'lc5_members',courtBk:'lc5_court_bk',kotDay:'lc5_kot_day',kotSeq:'lc5_kot_seq'};
+// Printer config — declared here so available before initFirebase/loadPrinterSettings
+let _printerIp     = '';
+let _printerDevice = 'local_printer';
 
 
 // Daily order counter — resets each day
@@ -7842,8 +7845,7 @@ function renderCourtPage() {
 // ═══════════════════════════════════════════
 //  EPSON TM-m30 ePOS PRINTING
 // ═══════════════════════════════════════════
-let _printerIp     = localStorage.getItem('lc5_printer_ip')     || '';
-let _printerDevice = localStorage.getItem('lc5_printer_device') || 'local_printer';
+// _printerIp and _printerDevice declared at top of script
 
 function savePrinterSettings() {
   _printerIp     = (document.getElementById('printer-ip')    ||{}).value || '';

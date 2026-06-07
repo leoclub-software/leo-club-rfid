@@ -541,7 +541,7 @@ select option{background:#fff;color:var(--tx);}
                 </div>
                 <div>
                   <div style="font-size:0.85rem;font-weight:700;color:var(--go);">🏨 Resort Room Guest</div>
-                  <div style="font-size:0.72rem;color:var(--mu);">Use room key card · No recharge bonus · direct billing</div>
+                  <div style="font-size:0.72rem;color:var(--mu);">Use room key card · ₹150 bonus auto-loaded · balance refundable at checkout</div>
                 </div>
               </div>
               <div id="room-number-wrap" style="display:none;">
@@ -572,7 +572,7 @@ select option{background:#fff;color:var(--tx);}
               <label class="f">Select Recharge Pack</label>
               <div class="rc-grid" id="issue-rc">
                 <div class="rc" onclick="selRC(this,'i',500,0)"><div class="rc-a">₹500</div><div class="rc-p">₹500 cash</div><div class="rc-b">no bonus</div></div>
-                <div class="rc pop" onclick="selRC(this,'i',1000,100)"><div class="rc-pop">★ popular</div><div class="rc-a">₹1,000</div><div class="rc-p">₹1,000 cash</div><div class="rc-b">+₹100 bonus</div></div>
+                <div class="rc pop" onclick="selRC(this,'i',1000,100)"><div class="rc-pop">★ popular</div><div class="rc-a">₹1,000</div><div class="rc-p">₹1,000 cash</div><div class="rc-b">+₹150 bonus</div></div>
                 <div class="rc" onclick="selRC(this,'i',2000,300)"><div class="rc-a">₹2,000</div><div class="rc-p">₹2,000 cash</div><div class="rc-b">+₹300 bonus</div></div>
                 <div class="rc" onclick="selRC(this,'i',5000,1000)"><div class="rc-a">₹5,000</div><div class="rc-p">₹5,000 cash</div><div class="rc-b">+₹1,000 bonus</div></div>
               </div>
@@ -616,7 +616,7 @@ select option{background:#fff;color:var(--tx);}
               <label class="f">Select Recharge Pack</label>
               <div class="rc-grid" id="tu-rc">
                 <div class="rc" onclick="selRC(this,'tu',500,0)"><div class="rc-a">₹500</div><div class="rc-p">₹500 cash</div><div class="rc-b">no bonus</div></div>
-                <div class="rc pop" onclick="selRC(this,'tu',1000,100)"><div class="rc-pop">★ popular</div><div class="rc-a">₹1,000</div><div class="rc-p">₹1,000 cash</div><div class="rc-b">+₹100 bonus</div></div>
+                <div class="rc pop" onclick="selRC(this,'tu',1000,100)"><div class="rc-pop">★ popular</div><div class="rc-a">₹1,000</div><div class="rc-p">₹1,000 cash</div><div class="rc-b">+₹150 bonus</div></div>
                 <div class="rc" onclick="selRC(this,'tu',2000,300)"><div class="rc-a">₹2,000</div><div class="rc-p">₹2,000 cash</div><div class="rc-b">+₹300 bonus</div></div>
                 <div class="rc" onclick="selRC(this,'tu',5000,1000)"><div class="rc-a">₹5,000</div><div class="rc-p">₹5,000 cash</div><div class="rc-b">+₹1,000 bonus</div></div>
               </div>
@@ -2337,7 +2337,7 @@ function toggleResortGuest() {
   // Update welcome notice
   const wel = document.getElementById('i-welcome');
   if (isResortGuest) {
-    wel.textContent = '🏨 Resort guest: ₹100 bonus auto-loaded. Main balance refundable at checkout.';
+    wel.textContent = '🏨 Resort guest: ₹150 bonus auto-loaded. Main balance refundable at checkout.';
     wel.style.color = 'var(--go)';
   } else {
     updateWelcomeNotice();
@@ -2380,12 +2380,12 @@ function issueCard() {
     const room = document.getElementById('r-room').value.trim();
     if (!room) { toast('Enter room number', true); return; }
     amt = 0;
-    totalBonus = 100;
-    card = {name, mobile, rfid, cashBalance:0, bonusBalance:100, spent:0, joined:nowStr(), status:'active', isGuest:true, room, ...(cardLabel ? {cardLabel, cardType:'guest'} : {})};
+    totalBonus = 150;
+    card = {name, mobile, rfid, cashBalance:0, bonusBalance:150, spent:0, joined:nowStr(), status:'active', isGuest:true, room, ...(cardLabel ? {cardLabel, cardType:'guest'} : {})};
     cards.push(card);
     persist('cards');
-    addTxnRecord(card, 'Reception', '🏨 Room guest activation — Room ' + room, 0, 100, 'credit');
-    toast('🏨 Room guest card activated · Room ' + room + ' · ₹100 bonus loaded');
+    addTxnRecord(card, 'Reception', '🏨 Room guest activation — Room ' + room, 0, 150, 'credit');
+    toast('🏨 Room guest card activated · Room ' + room + ' · ₹150 bonus loaded');
   } else {
     amt = parseFloat(document.getElementById('r-amt').value)||0;
     const rcBonus = iBonus || bonusForAmt(amt);
@@ -4841,7 +4841,7 @@ function showRoleDesc() {
   if (!el) return;
   const descs = {
     staff:  'Can access Reception, Counter and Lookup. Can issue cards, top-up, and charge customers. Cannot delete, export, or change settings.',
-    hotel:  'Hotel Reception only. Can issue new guest room cards (₹100 bonus auto-loaded), and check out guests (resets card for reuse). Cannot top-up cash, access counters, or view settings.',
+    hotel:  'Hotel Reception only. Can issue new guest room cards and check out guests (resets card for reuse). Cannot top-up cash, access counters, or view settings.',
     lookup: 'Can access Lookup (search card history) and Admin (view-only — no delete, no export).',
   };
   el.textContent = descs[role]||'';
@@ -7359,6 +7359,8 @@ function renderTodaysSales() {
   const bar = document.getElementById('today-sales-bar');
   const kpiEl = document.getElementById('today-kpi-cards');
   if (!bar || !kpiEl) return;
+  // Hotel role does not see sales dashboard
+  if (me && me.role === 'hotel') { bar.style.display = 'none'; return; }
   const today = getTodayDateKey();
   const todayTxns = txns.filter(t => txnInDate(t, today));
   bar.style.display = todayTxns.length ? 'block' : 'none';

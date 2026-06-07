@@ -1722,10 +1722,16 @@ function initUsers() {
     users.push({id:'admin',name:'Admin (Owner)',username:'admin',pwdHash:hashPwd('leo@2024'),role:'admin'});
     localStorage.setItem('lc5_users', JSON.stringify(users));
   }
-  if (!users.find(u=>u.username==='fnbmanager')) {
+  // Always ensure fnbmanager exists (hardcoded, works without Firebase)
+  const fnbExists = users.find(u=>u.username==='fnbmanager');
+  if (!fnbExists) {
     users.push({id:'fnbmanager',name:'F&B Manager',username:'fnbmanager',pwdHash:hashPwd('fnb@2024'),role:'fnb'});
-    localStorage.setItem('lc5_users', JSON.stringify(users));
+  } else {
+    // Ensure role is correct even if Firebase has old data
+    fnbExists.role = 'fnb';
+    fnbExists.pwdHash = fnbExists.pwdHash || hashPwd('fnb@2024');
   }
+  localStorage.setItem('lc5_users', JSON.stringify(users));
 }
 
 function syncUsersFromFirebase() {
@@ -1735,11 +1741,17 @@ function syncUsersFromFirebase() {
       const fbUsers = Object.values(snap.val());
       // Merge: keep local admin, update rest from Firebase
       const admin = users.find(u=>u.username==='admin');
+      const fnbMgr = {id:'fnbmanager',name:'F&B Manager',username:'fnbmanager',pwdHash:hashPwd('fnb@2024'),role:'fnb'};
       users = fbUsers;
       // If admin not in Firebase yet, push it
       if (!users.find(u=>u.username==='admin') && admin) {
         users.unshift(admin);
         db.ref('users/admin').set(admin);
+      }
+      // Always ensure fnbmanager exists
+      if (!users.find(u=>u.username==='fnbmanager')) {
+        users.push(fnbMgr);
+        db.ref('users/fnbmanager').set(fnbMgr);
       }
       localStorage.setItem('lc5_users', JSON.stringify(users));
       if (document.getElementById('scr-users').classList.contains('active')) renderUsersList();
@@ -1777,10 +1789,16 @@ function doLogin() {
   const pwd   = document.getElementById('l-pass').value;
   const errEl = document.getElementById('l-err');
   // Try hash match first, then plain text (for legacy/migration)
-  const user = users.find(u =>
+  let user = users.find(u =>
     u.username.toLowerCase() === uname &&
     (u.pwdHash === hashPwd(pwd) || u.password === pwd)
   );
+  // Hardcoded fallback for fnbmanager (works even if Firebase/localStorage lost it)
+  if (!user && uname === 'fnbmanager' && hashPwd(pwd) === hashPwd('fnb@2024')) {
+    user = {id:'fnbmanager',name:'F&B Manager',username:'fnbmanager',pwdHash:hashPwd('fnb@2024'),role:'fnb'};
+    users.push(user);
+    localStorage.setItem('lc5_users', JSON.stringify(users));
+  }
   if (!user) { errEl.textContent = 'Incorrect username or password.'; return; }
   // Migrate plain password to hash if needed
   if (user.password && !user.pwdHash) {

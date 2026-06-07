@@ -1112,16 +1112,16 @@ select option{background:#fff;color:var(--tx);}
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
             <div style="display:flex;gap:6px;align-items:center;flex:1;min-width:200px;">
               <label style="font-size:0.82rem;font-weight:700;color:var(--mu);white-space:nowrap;">Report Type:</label>
-              <select id="rpt-type" onchange="renderReport()" style="margin-bottom:0;flex:1;">
+              <select id="rpt-type" onchange="me&&me.role==='fnb'?renderFnbOnly():renderReport()" style="margin-bottom:0;flex:1;">
                 <option value="daily">Daily Report</option>
                 <option value="monthly">Monthly Report</option>
               </select>
             </div>
             <div style="display:flex;gap:6px;align-items:center;flex:1;min-width:200px;">
               <label style="font-size:0.82rem;font-weight:700;color:var(--mu);white-space:nowrap;">Date:</label>
-              <input type="date" id="rpt-date" style="margin-bottom:0;flex:1;" onchange="renderReport()">
+              <input type="date" id="rpt-date" style="margin-bottom:0;flex:1;" onchange="me&&me.role==='fnb'?renderFnbOnly():renderReport()">
             </div>
-            <button class="btn btn-cy btn-sm" onclick="renderReport()">🔄 Generate</button>
+            <button class="btn btn-cy btn-sm" onclick="me&&me.role==='fnb'?renderFnbOnly():renderReport()">🔄 Generate</button>
             <button class="btn btn-gn btn-sm" onclick="printReport()">🖨️ Print / Save PDF</button>
           </div>
         </div>
@@ -2053,7 +2053,7 @@ function goTo(id, el) {
   document.querySelectorAll('.nt').forEach(t => t.classList.remove('active'));
   document.getElementById('scr-' + id).classList.add('active');
   el.classList.add('active');
-  if (id === 'reports')   { setReportDefaultDate(); renderReport(); }
+  if (id === 'reports')   { setReportDefaultDate(); if(me&&me.role==='fnb'){renderFnbOnly();}else{renderReport();} }
   if (id === 'admin')     refreshAdmin();
   if (id === 'members')   { renderMembersList(); checkMemberExpiry(); }
   if (id === 'courts')    { renderCourtPage(); }
@@ -8068,6 +8068,97 @@ function printFnbReport() {
   w.document.write(printHtml);
   w.document.close();
   setTimeout(function(){ w.print(); setTimeout(function(){ w.close(); }, 2000); }, 400);
+}
+
+
+function renderFnbOnly() {
+  const rptEl = document.getElementById('rpt-output');
+  if (!rptEl) return;
+  const dateStr = document.getElementById('rpt-date').value || getTodayDateKey();
+  const filtered = txns.filter(t => txnInDate(t, dateStr));
+  const fnbTxns = filtered.filter(t => t.counter === 'Food & Beverages' && t.type === 'debit');
+  const f2 = v => '&#8377;' + Number(v||0).toLocaleString('en-IN');
+
+  // Build item map
+  var itemMap = {};
+  var totalAmt = 0;
+  fnbTxns.forEach(function(t) {
+    totalAmt += (t.cashAmt||0);
+    var desc = (t.desc||'').replace(/\[.*?\]/g,'').replace(/\|.*/,'').trim();
+    desc.split(',').forEach(function(part) {
+      part = part.trim(); if (!part) return;
+      var m = part.match(/^(.+?)\s*x(\d+)$/);
+      var name = m ? m[1].trim() : part;
+      var qty  = m ? parseInt(m[2]) : 1;
+      if (!name) return;
+      if (!itemMap[name]) itemMap[name] = {qty:0};
+      itemMap[name].qty += qty;
+    });
+  });
+
+  const itemRows = Object.keys(itemMap).sort().map(function(name) {
+    return '<tr><td style="font-weight:600;">'+name+'</td>'
+      +'<td style="text-align:center;font-weight:800;color:var(--cy);font-size:1.1rem;">'+itemMap[name].qty+'</td></tr>';
+  }).join('');
+
+  const billRows = fnbTxns.map(function(t) {
+    return '<tr>'
+      +'<td style="font-size:0.75rem;color:var(--mu);white-space:nowrap;">'+t.time+'</td>'
+      +'<td>'+(t.customer||'Walk-in')+'</td>'
+      +'<td style="font-size:0.78rem;">'+(t.desc||'').replace(/\[.*?\]/g,'').substring(0,50)+'</td>'
+      +'<td style="text-align:right;font-weight:700;">'+f2(t.cashAmt||0)+'</td>'
+      +'<td><span style="font-size:0.7rem;padding:2px 7px;border-radius:8px;font-weight:700;background:'
+        +(t.payMethod==='upi'?'#fef3c7;color:#92400e':t.payMethod==='rfid'?'#ede9fe;color:#5b21b6':'#f0fdf4;color:#166534')+';">'
+        +(t.payMethod==='upi'?'UPI':t.payMethod==='rfid'?'RFID':'Cash')+'</span></td>'
+      +'</tr>';
+  }).join('');
+
+  rptEl.innerHTML = '<div>'
+    // Header
+    +'<div class="card" style="padding:14px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">'
+    +'<div><div style="font-size:1rem;font-weight:800;">&#127829; F&amp;B DAILY REPORT</div>'
+    +'<div style="font-size:0.82rem;color:var(--cy);font-weight:700;margin-top:2px;">&#128197; '+dateStr+'</div></div>'
+    +'<button class="btn btn-mg btn-sm" onclick="printFnbReport()" style="padding:6px 16px;">&#128424; Print Report</button>'
+    +'</div>'
+
+    // Summary KPIs
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:12px;">'
+    +'<div class="card" style="padding:12px;text-align:center;border-left:4px solid var(--mg);">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;">TOTAL BILLS</div>'
+    +'<div style="font-family:monospace;font-size:1.5rem;font-weight:900;color:var(--tx);">'+fnbTxns.length+'</div>'
+    +'</div>'
+    +'<div class="card" style="padding:12px;text-align:center;border-left:4px solid var(--gr);">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;">TOTAL REVENUE</div>'
+    +'<div style="font-family:monospace;font-size:1.5rem;font-weight:900;color:var(--gr);">'+f2(totalAmt)+'</div>'
+    +'</div>'
+    +'<div class="card" style="padding:12px;text-align:center;border-left:4px solid #7c3aed;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;">RFID</div>'
+    +'<div style="font-family:monospace;font-size:1.5rem;font-weight:900;color:#7c3aed;">'+f2(fnbTxns.filter(t=>t.payMethod==='rfid').reduce((s,t)=>s+(t.cashAmt||0),0))+'</div>'
+    +'</div>'
+    +'<div class="card" style="padding:12px;text-align:center;border-left:4px solid var(--cy);">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;">CASH</div>'
+    +'<div style="font-family:monospace;font-size:1.5rem;font-weight:900;color:var(--cy);">'+f2(fnbTxns.filter(t=>t.payMethod==='cash'||!t.payMethod).reduce((s,t)=>s+(t.cashAmt||0),0))+'</div>'
+    +'</div>'
+    +'<div class="card" style="padding:12px;text-align:center;border-left:4px solid var(--go);">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;">UPI</div>'
+    +'<div style="font-family:monospace;font-size:1.5rem;font-weight:900;color:var(--go);">'+f2(fnbTxns.filter(t=>t.payMethod==='upi').reduce((s,t)=>s+(t.cashAmt||0),0))+'</div>'
+    +'</div>'
+    +'</div>'
+
+    // Item-wise table
+    +(Object.keys(itemMap).length ? '<div class="card" style="padding:0;overflow:hidden;margin-bottom:12px;">'
+    +'<div style="padding:12px 14px;font-weight:800;font-size:0.85rem;border-bottom:1px solid var(--border);">ITEMS SOLD TODAY</div>'
+    +'<table class="tbl"><thead><tr><th>Item</th><th style="text-align:center;">Qty Sold</th></tr></thead>'
+    +'<tbody>'+itemRows+'</tbody></table></div>'
+    : '<div class="card" style="padding:20px;text-align:center;color:var(--mu);">No F&B sales for '+dateStr+'</div>')
+
+    // Bill detail
+    +(fnbTxns.length ? '<div class="card" style="padding:0;overflow:hidden;">'
+    +'<div style="padding:12px 14px;font-weight:800;font-size:0.85rem;border-bottom:1px solid var(--border);">BILL DETAIL ('+fnbTxns.length+')</div>'
+    +'<div style="overflow-x:auto;"><table class="tbl" style="min-width:400px;">'
+    +'<thead><tr><th>Time</th><th>Guest</th><th>Items</th><th style="text-align:right;">Amount</th><th>Pay</th></tr></thead>'
+    +'<tbody>'+billRows+'</tbody></table></div></div>' : '')
+    +'</div>';
 }
 
 </script>

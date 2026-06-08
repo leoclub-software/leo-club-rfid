@@ -1121,8 +1121,29 @@ select option{background:#fff;color:var(--tx);}
               <label style="font-size:0.82rem;font-weight:700;color:var(--mu);white-space:nowrap;">Date:</label>
               <input type="date" id="rpt-date" style="margin-bottom:0;flex:1;" onchange="me&&me.role==='fnb'?renderFnbOnly():renderReport()">
             </div>
+            <div style="display:flex;gap:6px;align-items:center;flex:1;min-width:160px;">
+              <label style="font-size:0.82rem;font-weight:700;color:var(--mu);white-space:nowrap;">Counter:</label>
+              <select id="rpt-counter" onchange="me&&me.role==='fnb'?renderFnbOnly():renderReport()" style="margin-bottom:0;flex:1;">
+                <option value="all">All Counters</option>
+                <option value="Bowling">Bowling</option>
+                <option value="Game Zone">Game Zone</option>
+                <option value="Food &amp; Beverages">Food &amp; Beverages</option>
+                <option value="Mini Theatre">Mini Theatre</option>
+                <option value="Courts">Courts</option>
+                <option value="Reception">Reception</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;flex:1;min-width:160px;">
+              <label style="font-size:0.82rem;font-weight:700;color:var(--mu);white-space:nowrap;">Payment:</label>
+              <select id="rpt-pay" onchange="me&&me.role==='fnb'?renderFnbOnly():renderReport()" style="margin-bottom:0;flex:1;">
+                <option value="all">All Payments</option>
+                <option value="rfid">RFID Wallet</option>
+                <option value="cash">Cash</option>
+                <option value="upi">UPI</option>
+              </select>
+            </div>
             <button class="btn btn-cy btn-sm" onclick="me&&me.role==='fnb'?renderFnbOnly():renderReport()">🔄 Generate</button>
-            <button class="btn btn-gn btn-sm" onclick="printReport()">🖨️ Print / Save PDF</button>
+            <button class="btn btn-gn btn-sm" onclick="printReport()">🖨️ Print</button>
           </div>
         </div>
 
@@ -4358,242 +4379,155 @@ function buildCounterSummary(filteredTxns) {
 }
 
 function renderReport() {
-  const type    = document.getElementById('rpt-type').value;
-  const dateStr = document.getElementById('rpt-date').value;
-  if (!dateStr) { document.getElementById('rpt-output').innerHTML='<div class="n-cy">Select a date first.</div>'; return; }
-  const filtered = type==='daily' ? txns.filter(t=>txnInDate(t,dateStr)) : txns.filter(t=>txnInMonth(t,dateStr));
+  const type       = (document.getElementById('rpt-type')    ||{}).value || 'daily';
+  const dateStr    = (document.getElementById('rpt-date')    ||{}).value || '';
+  const ctrFilter  = (document.getElementById('rpt-counter') ||{}).value || 'all';
+  const payFilter  = (document.getElementById('rpt-pay')     ||{}).value || 'all';
+  const rptEl      = document.getElementById('rpt-output');
+  if (!dateStr) { rptEl.innerHTML='<div class="n-cy">Select a date first.</div>'; return; }
+
   const [yr,mo,dy] = dateStr.split('-');
-  const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const periodLabel = type==='daily' ? dy+' '+months[parseInt(mo)-1]+' '+yr : months[parseInt(mo)-1]+' '+yr;
-  const rptEl = document.getElementById('rpt-output');
-  if (!filtered.length) {
+
+  var allFiltered = type==='daily' ? txns.filter(function(t){return txnInDate(t,dateStr);})
+                                   : txns.filter(function(t){return txnInMonth(t,dateStr);});
+
+  if (!allFiltered.length) {
     rptEl.innerHTML='<div class="card" style="padding:20px;text-align:center;color:var(--mu);">No transactions for '+periodLabel+'.</div>';
     return;
   }
-  const D = buildCounterSummary(filtered);
-  const f2 = v => '&#8377;'+Number(v||0).toLocaleString('en-IN');
 
-  // ── Counter breakdown rows ────────────────────────────────────
-  const counterRows = D.rows.map(r=>'<tr>'
-    +'<td style="font-weight:600;">'+r.counter+'</td>'
-    +'<td style="text-align:right;color:#7c3aed;">'+(r.rfid>0?f2(r.rfid):'—')+'</td>'
-    +'<td style="text-align:right;color:var(--cy);">'+(r.cash>0?f2(r.cash):'—')+'</td>'
-    +'<td style="text-align:right;color:var(--go);">'+(r.upi>0?f2(r.upi):'—')+'</td>'
-    +'<td style="text-align:right;font-weight:800;">'+f2(r.total)+'</td>'
-    +'<td style="text-align:right;color:var(--mu);font-size:0.8rem;">'+r.count+'</td>'
-    +'</tr>').join('');
+  // Apply counter filter
+  var filtered = ctrFilter==='all' ? allFiltered
+    : allFiltered.filter(function(t){return t.counter===ctrFilter;});
 
-  // ── Recharge log ──────────────────────────────────────────────
-  const rcpTxns = filtered.filter(t=>t.counter==='Reception'&&t.type==='credit');
-  const rcpRows = rcpTxns.map(t=>'<tr>'
-    +'<td style="font-size:0.78rem;white-space:nowrap;">'+t.time+'</td>'
-    +'<td style="font-weight:600;">'+(t.customer||'—')+'</td>'
-    +'<td>'+(t.desc||'—')+'</td>'
-    +'<td style="text-align:right;color:var(--gr);font-weight:700;">'+f2(t.cashAmt||0)+'</td>'
-    +'<td>'+(t.bonusAmt>0?'<span style="color:var(--go);">+'+f2(t.bonusAmt)+'</span>':'—')+'</td>'
-    +'<td><span style="font-size:0.72rem;padding:2px 8px;border-radius:10px;font-weight:700;background:'+(getPaymentLabel(t)==='UPI'?'#fef3c7;color:#92400e':'#f0fdf4;color:#166534')+';">'+(getPaymentLabel(t)==='UPI'?'&#128241; UPI':'&#128181; Cash')+'</span></td>'
-    +'</tr>').join('');
+  // Apply payment filter
+  if (payFilter !== 'all') {
+    filtered = filtered.filter(function(t){return getPaymentLabel(t).toLowerCase()===payFilter;});
+  }
 
-  // ── All txns log ──────────────────────────────────────────────
-  const allRows = filtered.map(t=>'<tr>'
-    +'<td style="font-size:0.75rem;white-space:nowrap;color:var(--mu);">'+t.time+'</td>'
-    +'<td style="font-weight:600;">'+(t.customer||'—')+'</td>'
-    +'<td style="font-size:0.78rem;">'+(t.counter||'—')+'</td>'
-    +'<td style="font-size:0.78rem;">'+(t.desc||'—')+'</td>'
-    +'<td style="text-align:right;color:'+(t.type==='credit'?'var(--gr)':'var(--rd)')+';">'+
-      (t.type==='credit'?'+':'-')+f2(t.cashAmt||0)+'</td>'
-    +'<td style="text-align:right;color:var(--go);">'+(t.bonusAmt>0?(t.type==='credit'?'+':'-')+'&#8377;'+(t.bonusAmt||0).toLocaleString('en-IN'):'—')+'</td>'
-    +'<td style="font-size:0.75rem;">'+(t.payMethod==='upi'?'&#128241; UPI':t.payMethod==='cash'?'&#128181; Cash':'&#128251; RFID')+'</td>'
-    +'</tr>').join('');
+  const f2 = function(v){ return '&#8377;'+Number(v||0).toLocaleString('en-IN'); };
+  const payBadge = function(t) {
+    var pm = getPaymentLabel(t);
+    var bg = pm==='UPI'?'#fef3c7;color:#92400e':pm==='Cash'?'#f0fdf4;color:#166534':'#ede9fe;color:#5b21b6';
+    var ic = pm==='UPI'?'&#128241;':pm==='Cash'?'&#128181;':'&#128251;';
+    return '<span style="font-size:0.7rem;padding:2px 8px;border-radius:8px;font-weight:700;background:'+bg+';">'+ic+' '+pm+'</span>';
+  };
 
-  rptEl.innerHTML = '<div id="report-printable">'
+  // ── Counters to show (grouped) ────────────────────────────────
+  const COUNTER_ORDER = ['Bowling','Game Zone','Food & Beverages','Mini Theatre','Courts','Reception'];
+  const countersInData = ctrFilter==='all'
+    ? [...new Set(allFiltered.map(function(t){return t.counter;}))]
+    : [ctrFilter];
+  const orderedCounters = [
+    ...COUNTER_ORDER.filter(function(c){return countersInData.includes(c);}),
+    ...countersInData.filter(function(c){return !COUNTER_ORDER.includes(c);})
+  ];
 
-    // ── HEADER ──
-    +'<div class="card" style="padding:16px 18px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">'
-    +'<div><div style="font-size:1.1rem;font-weight:800;">&#127942; LEO CLUB &mdash; '+(type==='daily'?'DAILY':'MONTHLY')+' REPORT</div>'
-    +'<div style="font-size:0.85rem;font-weight:700;color:var(--cy);margin-top:3px;">&#128197; '+periodLabel+'</div></div>'
-    +'<div style="text-align:right;font-size:0.75rem;color:var(--mu);">Generated: '+nowStr()+'<br>By: '+(me?me.name:'—')+'</div>'
-    +'</div>'
+  // ── Summary totals (from allFiltered, before pay filter) ──────
+  const D = buildCounterSummary(allFiltered);
 
-    // ══ FIGURE A: LOADED (Money collected from customers) ══
-    +'<div class="card" style="padding:16px;margin-bottom:12px;border-left:4px solid var(--cy);">'
-    +'<div style="font-size:0.72rem;font-weight:800;color:var(--mu);letter-spacing:.06em;margin-bottom:10px;">&#128260; FIGURE A &mdash; LOADED TODAY (Cash &amp; UPI collected from customers)</div>'
-    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px;">'
-    +'<div style="background:var(--bg);border:2px solid #86efac;border-radius:10px;padding:12px;text-align:center;">'
-    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">TOTAL LOADED</div>'
-    +'<div style="font-family:monospace;font-size:1.5rem;font-weight:900;color:var(--gr);">'+f2(D.rechargeTotal)+'</div>'
-    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">Cash collected into RFID cards</div>'
-    +'</div>'
-    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
-    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">&#128181; RECHARGE CASH</div>'
-    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:var(--cy);">'+f2(D.rechargeCash)+'</div>'
-    +'</div>'
-    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
-    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">&#128241; RECHARGE UPI</div>'
-    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:var(--go);">'+f2(D.rechargeUpi)+'</div>'
-    +'</div>'
-    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
-    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">DIRECT SALES</div>'
-    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:#7c3aed;">'+f2(D.walkinCash+D.walkinUpi)+'</div>'
-    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">Walk-in without card</div>'
-    +'</div>'
-    +'</div>'
+  var sections = '';
 
-    // ══ FIGURE B: SPENT (Actual consumption) ══
-    +'<div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px;">'
-    +'<div style="font-size:0.72rem;font-weight:800;color:var(--mu);letter-spacing:.06em;margin-bottom:10px;">&#127377; FIGURE B &mdash; ACTUALLY SPENT (RFID deductions from counters)</div>'
-    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;">'
-    +'<div style="background:var(--bg);border:2px solid #bfdbfe;border-radius:10px;padding:12px;text-align:center;">'
-    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">TOTAL SPENT (RFID)</div>'
-    +'<div style="font-family:monospace;font-size:1.5rem;font-weight:900;color:#2563eb;">'+f2(D.totalRfid)+'</div>'
-    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">Deducted from cards today</div>'
-    +'</div>'
-    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
-    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">DIRECT CASH SALES</div>'
-    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:var(--cy);">'+f2(D.walkinCash)+'</div>'
-    +'</div>'
-    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
-    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">DIRECT UPI SALES</div>'
-    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:var(--go);">'+f2(D.walkinUpi)+'</div>'
-    +'</div>'
-    +'<div style="background:var(--bg);border:2px solid #bbf7d0;border-radius:10px;padding:12px;text-align:center;">'
-    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">TOTAL REVENUE</div>'
-    +'<div style="font-family:monospace;font-size:1.5rem;font-weight:900;color:var(--gr);">'+f2(D.grandTotal)+'</div>'
-    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">RFID + Direct</div>'
-    +'</div>'
-    +'</div>'
-    +'</div></div>'
+  // ── Per-counter grouped sections ──────────────────────────────
+  orderedCounters.forEach(function(ctr) {
+    var ctrTxns = allFiltered.filter(function(t){return t.counter===ctr;});
+    if (!ctrTxns.length) return;
 
-    // ══ FIGURE C: LIABILITY ══
-    +'<div class="card" style="padding:16px;margin-bottom:12px;border-left:4px solid #7c3aed;">'
-    +'<div style="font-size:0.72rem;font-weight:800;color:var(--mu);letter-spacing:.06em;margin-bottom:10px;">&#128251; FIGURE C &mdash; LIABILITY (Balance on ALL active cards)</div>'
-    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px;">'
-    +'<div style="background:var(--bg);border:2px solid #ddd6fe;border-radius:10px;padding:12px;text-align:center;">'
-    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">TOTAL LIABILITY</div>'
-    +'<div style="font-family:monospace;font-size:1.5rem;font-weight:900;color:#7c3aed;">'+f2(D.totalCardBalance)+'</div>'
-    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">Paid but not yet spent</div>'
-    +'</div>'
-    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
-    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">CASH BALANCE</div>'
-    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:var(--cy);">'+f2(D.totalCardCash)+'</div>'
-    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">On all cards right now</div>'
-    +'</div>'
-    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
-    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">BONUS BALANCE</div>'
-    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:var(--go);">'+f2(D.totalCardBonus)+'</div>'
-    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">Bonus credits on cards</div>'
-    +'</div>'
-    +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;text-align:center;">'
-    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;margin-bottom:4px;">ACTIVE CARDS</div>'
-    +'<div style="font-family:monospace;font-size:1.3rem;font-weight:800;color:var(--tx);">'+cards.filter(c=>c.active&&(c.cashBalance>0||c.bonusBalance>0)).length+'</div>'
-    +'<div style="font-size:0.68rem;color:var(--mu);margin-top:3px;">With remaining balance</div>'
-    +'</div>'
-    +'</div>'
-    // Opening / Closing reconciliation
-    +'<div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:12px;font-size:0.82rem;line-height:2;color:#4c1d95;">'
-    +'<b>&#128200; Balance Check:</b><br>'
-    +'Opening liability (before today) = Closing liability + Loaded today &minus; Spent today<br>'
-    +'<span style="font-size:0.8rem;color:var(--mu);">Today: Loaded <b style="color:var(--cy);">'+f2(D.rechargeTotal)+'</b> &rarr; Spent <b style="color:#2563eb;">'+f2(D.walletSpent)+'</b> &rarr; Unspent from today <b style="color:#7c3aed;">'+f2(Math.max(0,D.rechargeTotal-D.walletSpent))+'</b> (now part of liability)</span>'
-    +'</div>'
-    +'</div>'
+    // Counter icon
+    var icon = ctr==='Bowling'?'&#127923;':ctr==='Game Zone'?'&#127918;':ctr==='Food & Beverages'?'&#127829;'
+             : ctr==='Mini Theatre'?'&#127916;':ctr==='Courts'?'&#127934;':'&#127974;';
 
+    // Payment split for this counter
+    var cRfid = ctrTxns.filter(function(t){return getPaymentLabel(t)==='RFID';}).reduce(function(s,t){return s+(t.cashAmt||0)+(t.bonusAmt||0);},0);
+    var cCash = ctrTxns.filter(function(t){return getPaymentLabel(t)==='Cash';}).reduce(function(s,t){return s+(t.cashAmt||0);},0);
+    var cUpi  = ctrTxns.filter(function(t){return getPaymentLabel(t)==='UPI'; }).reduce(function(s,t){return s+(t.cashAmt||0);},0);
+    var cTot  = ctrTxns.reduce(function(s,t){return s+(t.cashAmt||0)+(t.bonusAmt||0);},0);
 
-    // ── F&B Item-wise breakdown ──────────────────────────────────────
-    +(function(){
-      var fnbTxns = filtered.filter(function(t){return t.counter==='Food & Beverages' && t.type==='debit';});
-      if (!fnbTxns.length) return '';
-      // Parse item names from description
-      var itemMap = {};
-      var totalFnb = 0;
-      fnbTxns.forEach(function(t) {
-        totalFnb += (t.cashAmt||0);
-        // desc format: "Cold Coffee, Samosa x2, Brownie [CASH]" or similar
-        var desc = (t.desc||'').replace(/[.*?]/g,'').replace(/|.*/,'').trim();
-        var parts = desc.split(',');
-        parts.forEach(function(part) {
-          part = part.trim();
-          if (!part) return;
-          var m = part.match(/^(.+?)s*x(d+)$/);
-          var name, qty;
-          if (m) { name = m[1].trim(); qty = parseInt(m[2]); }
-          else { name = part; qty = 1; }
-          if (!name) return;
-          if (!itemMap[name]) itemMap[name] = {qty:0, amt:0};
-          itemMap[name].qty += qty;
-          // Try to find price from menuItems
-          var mi = (menuItems||[]).find(function(x){return x.name===name;});
-          itemMap[name].amt += mi ? mi.price * qty : 0;
-        });
-      });
-      var itemRows = Object.keys(itemMap).sort().map(function(name) {
-        var it = itemMap[name];
-        return '<tr>'
-          +'<td style="font-weight:600;">'+name+'</td>'
-          +'<td style="text-align:center;font-weight:700;color:var(--cy);">'+it.qty+'</td>'
-          +'<td style="text-align:right;color:var(--gr);font-weight:700;">'+(it.amt>0?f2(it.amt):'—')+'</td>'
-          +'</tr>';
-      }).join('');
-      var fnbDetailRows = fnbTxns.map(function(t){
+    // Payment groups for this counter (respect payFilter)
+    var payGroups = payFilter==='all'
+      ? ['RFID','Cash','UPI']
+      : [payFilter==='rfid'?'RFID':payFilter==='cash'?'Cash':'UPI'];
+
+    var groupSections = '';
+    payGroups.forEach(function(pm) {
+      var pmTxns = ctrTxns.filter(function(t){return getPaymentLabel(t)===pm;});
+      if (!pmTxns.length) return;
+      var pmTotal = pmTxns.reduce(function(s,t){return s+(t.cashAmt||0)+(t.bonusAmt||0);},0);
+      var pmIcon  = pm==='UPI'?'&#128241;':pm==='Cash'?'&#128181;':'&#128251;';
+      var pmColor = pm==='UPI'?'#d97706':pm==='Cash'?'var(--cy)':'#7c3aed';
+      var pmBg    = pm==='UPI'?'#fef3c7':pm==='Cash'?'#f0fdf4':'#ede9fe';
+
+      var rows = pmTxns.map(function(t){
         return '<tr>'
           +'<td style="font-size:0.75rem;color:var(--mu);white-space:nowrap;">'+t.time+'</td>'
-          +'<td>'+(t.customer||'Walk-in')+'</td>'
-          +'<td style="font-size:0.78rem;">'+(t.desc||'').replace(/[.*?]/g,'').substring(0,60)+'</td>'
-          +'<td style="text-align:right;font-weight:700;color:var(--rd);">'+f2(t.cashAmt||0)+'</td>'
-          +'<td><span style="font-size:0.7rem;padding:2px 7px;border-radius:8px;font-weight:700;background:'
-            +(t.payMethod==='upi'?'#fef3c7;color:#92400e':t.payMethod==='rfid'?'#ede9fe;color:#5b21b6':'#f0fdf4;color:#166534')+';">'
-            +(t.payMethod==='upi'?'UPI':t.payMethod==='rfid'?'RFID':'Cash')+'</span></td>'
+          +'<td style="font-weight:600;">'+(t.customer||'Walk-in')+'</td>'
+          +'<td style="font-size:0.78rem;max-width:180px;">'+(t.desc||'—')+'</td>'
+          +'<td style="text-align:right;font-weight:700;color:'+(t.type==='credit'?'var(--gr)':'var(--rd)')+';">'
+            +(t.type==='credit'?'+':'')+f2(t.cashAmt||0)+'</td>'
+          +(pm==='RFID'?'<td style="text-align:right;color:var(--go);">'+(t.bonusAmt>0?f2(t.bonusAmt):'—')+'</td>':'')
           +'</tr>';
       }).join('');
-      return '<div class="card" style="padding:0;overflow:hidden;margin-bottom:12px;border-left:4px solid var(--mg);">'
-        +'<div style="padding:12px 14px;font-weight:800;font-size:0.88rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">'
-        +'<span>&#127829; F&amp;B ITEM REPORT ('+fnbTxns.length+' bills &mdash; '+f2(totalFnb)+')</span>'
-        +'<button class="btn btn-mg btn-sm" onclick="printFnbReport()" style="font-size:0.72rem;padding:4px 12px;">&#128424; Print</button>'
-        +'</div>'
-        +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:0;">'
-        +'<div style="padding:12px;border-right:1px solid var(--border);">'
-        +'<div style="font-size:0.72rem;font-weight:800;color:var(--mu);margin-bottom:8px;">ITEM-WISE QUANTITY</div>'
-        +'<table class="tbl"><thead><tr><th>Item</th><th style="text-align:center;">Qty</th><th style="text-align:right;">Amount</th></tr></thead>'
-        +'<tbody>'+itemRows+'</tbody></table>'
-        +'</div>'
-        +'<div style="padding:12px;">'
-        +'<div style="font-size:0.72rem;font-weight:800;color:var(--mu);margin-bottom:8px;">BILL-WISE DETAIL</div>'
-        +'<div style="overflow-x:auto;"><table class="tbl" style="min-width:350px;">'
-        +'<thead><tr><th>Time</th><th>Guest</th><th>Items</th><th style="text-align:right;">Total</th><th>Pay</th></tr></thead>'
-        +'<tbody>'+fnbDetailRows+'</tbody></table></div>'
-        +'</div>'
-        +'</div></div>';
-    }())
 
-    // ── Counter breakdown ──
-    +'<div class="card" style="padding:16px;margin-bottom:12px;">'
-    +'<div style="font-size:0.72rem;font-weight:800;color:var(--mu);letter-spacing:.06em;margin-bottom:10px;">COUNTER BREAKDOWN</div>'
-    +'<div style="overflow-x:auto;"><table class="tbl" style="min-width:480px;">'
-    +'<thead><tr><th>Counter</th><th style="text-align:right;">&#128251; RFID</th><th style="text-align:right;">&#128181; Cash</th><th style="text-align:right;">&#128241; UPI</th><th style="text-align:right;">Total</th><th style="text-align:right;">Txns</th></tr></thead>'
-    +'<tbody>'+counterRows
-    +'<tr style="border-top:2px solid var(--border);font-weight:800;background:var(--bg);">'
-    +'<td>TOTAL</td><td style="text-align:right;color:#7c3aed;">'+f2(D.totalRfid)+'</td>'
-    +'<td style="text-align:right;color:var(--cy);">'+f2(D.totalCash)+'</td>'
-    +'<td style="text-align:right;color:var(--go);">'+f2(D.totalUpi)+'</td>'
-    +'<td style="text-align:right;color:var(--gr);font-weight:900;">'+f2(D.grandTotal)+'</td>'
-    +'<td style="text-align:right;color:var(--mu);">'+D.rows.reduce((s,r)=>s+r.count,0)+'</td>'
-    +'</tr></tbody></table></div></div>'
+      groupSections += '<div style="margin-bottom:0;">'
+        +'<div style="padding:8px 14px;background:'+pmBg+';display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);">'
+        +'<span style="font-weight:800;font-size:0.8rem;color:'+pmColor+';">'+pmIcon+' '+pm+' &mdash; '+pmTxns.length+' transactions</span>'
+        +'<span style="font-weight:900;font-size:0.9rem;color:'+pmColor+';">'+f2(pmTotal)+'</span>'
+        +'</div>'
+        +'<div style="overflow-x:auto;"><table class="tbl" style="min-width:420px;">'
+        +'<thead><tr><th>Time</th><th>Guest</th><th>Description</th><th style="text-align:right;">Amount</th>'
+        +(pm==='RFID'?'<th style="text-align:right;">Bonus</th>':'')
+        +'</tr></thead><tbody>'+rows+'</tbody>'
+        +'<tfoot><tr style="font-weight:800;background:var(--bg);border-top:2px solid var(--border);">'
+        +'<td colspan="3" style="text-align:right;">Total '+pm+'</td>'
+        +'<td style="text-align:right;color:'+pmColor+';">'+f2(pmTotal)+'</td>'
+        +(pm==='RFID'?'<td></td>':'')
+        +'</tr></tfoot>'
+        +'</table></div></div>';
+    });
 
-    // ── Recharge log ──
-    +(rcpTxns.length ? '<div class="card" style="padding:0;overflow:hidden;margin-bottom:12px;">'
-    +'<div style="padding:12px 14px;font-weight:800;font-size:0.85rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;">'
-    +'<span>RECHARGE LOG ('+rcpTxns.length+') &mdash; '+f2(D.rechargeTotal)+'</span>'
-    +'<span style="font-size:0.75rem;color:var(--mu);">&#128181; '+f2(D.rechargeCash)+' &nbsp;|&nbsp; &#128241; '+f2(D.rechargeUpi)+'</span></div>'
-    +'<div style="overflow-x:auto;"><table class="tbl" style="min-width:500px;">'
-    +'<thead><tr><th>Time</th><th>Guest</th><th>Description</th><th style="text-align:right;">Cash</th><th style="text-align:right;">Bonus</th><th>Pay</th></tr></thead>'
-    +'<tbody>'+rcpRows+'</tbody></table></div></div>' : '')
+    var ctrId = ctr.replace(/[^a-zA-Z0-9]/g,'_');
+    sections += '<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px;border-left:4px solid var(--cy);">'
+      // Counter header
+      +'<div style="padding:12px 16px;border-bottom:2px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">'
+      +'<div style="font-weight:900;font-size:1rem;">'+icon+' '+ctr+'</div>'
+      +'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:0.8rem;font-weight:700;">'
+      +(cRfid>0?'<span style="color:#7c3aed;">&#128251; RFID: '+f2(cRfid)+'</span>':'')
+      +(cCash>0?'<span style="color:var(--cy);">&#128181; Cash: '+f2(cCash)+'</span>':'')
+      +(cUpi>0 ?'<span style="color:#d97706;">&#128241; UPI: '+f2(cUpi)+'</span>':'')
+      +'<span style="color:var(--gr);font-size:0.9rem;">Total: '+f2(cTot)+'</span>'
+      +'<button class="btn btn-gh btn-sm" onclick="printCounterReport(\'' + ctrId + '\')" style="font-size:0.72rem;padding:4px 12px;margin-left:4px;">&#128424; Print</button>'
+      +'</div></div>'
+      + groupSections
+      +'</div>';
+  });
 
-    // ── Full log ──
-    +'<div class="card" style="padding:0;overflow:hidden;">'
-    +'<div style="padding:12px 14px;font-weight:800;font-size:0.85rem;border-bottom:1px solid var(--border);">FULL TRANSACTION LOG ('+filtered.length+')</div>'
-    +'<div style="overflow-x:auto;"><table class="tbl" style="min-width:580px;">'
-    +'<thead><tr><th>Time</th><th>Guest</th><th>Counter</th><th>Description</th><th style="text-align:right;">Cash</th><th style="text-align:right;">Bonus</th><th>Pay</th></tr></thead>'
-    +'<tbody>'+allRows+'</tbody></table></div></div>'
-    +'</div>';
+  // ── Summary card ──────────────────────────────────────────────
+  const summaryHtml = '<div class="card" style="padding:14px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">'
+    +'<div><div style="font-size:1rem;font-weight:800;">&#128202; '+(type==='daily'?'DAILY':'MONTHLY')+' REPORT &mdash; '+periodLabel+'</div>'
+    +(ctrFilter!=='all'?'<div style="font-size:0.8rem;color:var(--cy);font-weight:700;margin-top:2px;">Counter: '+ctrFilter+'</div>':'')
+    +(payFilter!=='all'?'<div style="font-size:0.8rem;color:var(--go);font-weight:700;margin-top:2px;">Payment: '+payFilter.toUpperCase()+'</div>':'')
+    +'</div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;">'
+    +'<div style="text-align:center;padding:8px 14px;background:var(--bg);border-radius:8px;border:1.5px solid #bbf7d0;">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;">TOTAL</div>'
+    +'<div style="font-family:monospace;font-size:1.2rem;font-weight:900;color:var(--gr);">'+f2(D.grandTotal)+'</div></div>'
+    +'<div style="text-align:center;padding:8px 14px;background:var(--bg);border-radius:8px;border:1.5px solid var(--border);">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;">&#128251; RFID</div>'
+    +'<div style="font-family:monospace;font-size:1.2rem;font-weight:900;color:#7c3aed;">'+f2(D.totalRfid)+'</div></div>'
+    +'<div style="text-align:center;padding:8px 14px;background:var(--bg);border-radius:8px;border:1.5px solid var(--border);">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;">&#128181; CASH</div>'
+    +'<div style="font-family:monospace;font-size:1.2rem;font-weight:900;color:var(--cy);">'+f2(D.totalCash+D.walkinCash)+'</div></div>'
+    +'<div style="text-align:center;padding:8px 14px;background:var(--bg);border-radius:8px;border:1.5px solid var(--border);">'
+    +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;">&#128241; UPI</div>'
+    +'<div style="font-family:monospace;font-size:1.2rem;font-weight:900;color:#d97706;">'+f2(D.totalUpi+D.walkinUpi)+'</div></div>'
+    +'<div style="text-align:center;padding:8px 14px;">'
+    +'<button class="btn btn-cy btn-sm" onclick="printFullReport()" style="font-size:0.78rem;">&#128424; Print Full Report</button>'
+    +'</div>'
+    +'</div></div>';
+
+  rptEl.innerHTML = '<div id="report-printable">' + summaryHtml + sections + '</div>';
 }
 
 function printReport() {
@@ -8161,6 +8095,85 @@ function renderFnbOnly() {
     +'<thead><tr><th>Time</th><th>Guest</th><th>Items</th><th style="text-align:right;">Amount</th><th>Pay</th></tr></thead>'
     +'<tbody>'+billRows+'</tbody></table></div></div>' : '')
     +'</div>';
+}
+
+
+// Print a specific counter's section
+function printCounterReport(ctrId) {
+  var rptEl = document.getElementById('report-printable');
+  if (!rptEl) { toast('Generate report first', true); return; }
+
+  // Find all counter cards and locate the right one
+  var cards = rptEl.querySelectorAll('.card');
+  var targetCard = null;
+  cards.forEach(function(card) {
+    var hdr = card.querySelector('div');
+    if (hdr && hdr.textContent.replace(/[^a-zA-Z0-9]/g,'_').indexOf(ctrId) >= 0) {
+      targetCard = card;
+    }
+  });
+
+  // Build print HTML from the full section
+  var dateStr = (document.getElementById('rpt-date')||{}).value || getTodayDateKey();
+  var ctrName = ctrId.replace(/_/g,' ');
+
+  // Get the summary card + this counter card
+  var summaryCard = rptEl.querySelector('.card');
+  var summaryHtml = summaryCard ? summaryCard.outerHTML : '';
+  var sectionHtml = targetCard ? targetCard.outerHTML : rptEl.innerHTML;
+
+  var printHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+    + '<title>'+ctrName+' Report '+dateStr+'</title>'
+    + '<style>'
+    + 'body{font-family:Arial,sans-serif;font-size:12px;color:#000;padding:10px;}'
+    + 'table{width:100%;border-collapse:collapse;margin:6px 0;}'
+    + 'th,td{border:1px solid #ddd;padding:5px 8px;text-align:left;}'
+    + 'th{background:#f0f0f0;font-weight:700;}'
+    + '.card{border:1px solid #ddd;border-radius:6px;margin-bottom:12px;overflow:hidden;}'
+    + 'h2{font-size:15px;margin:0 0 4px 0;}'
+    + '@media print{button{display:none!important;}}'
+    + '</style></head><body>'
+    + '<div style="text-align:center;margin-bottom:12px;">'
+    + '<h2>LEO CLUB &mdash; ' + ctrName.toUpperCase() + ' REPORT</h2>'
+    + '<div style="font-size:11px;color:#555;">Date: ' + dateStr + ' &nbsp;|&nbsp; Printed: ' + nowStr() + '</div>'
+    + '</div>'
+    + sectionHtml
+    + '</body></html>';
+
+  var w = window.open('','_blank','width=700,height=600');
+  if (!w) { toast('Allow popups to print', true); return; }
+  w.document.write(printHtml);
+  w.document.close();
+  setTimeout(function(){ w.print(); setTimeout(function(){ w.close(); }, 2500); }, 400);
+}
+
+// Print the full report
+function printFullReport() {
+  var rptEl = document.getElementById('report-printable');
+  if (!rptEl) { toast('Generate report first', true); return; }
+  var dateStr = (document.getElementById('rpt-date')||{}).value || getTodayDateKey();
+  var printHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+    + '<title>Leo Club Report '+dateStr+'</title>'
+    + '<style>'
+    + 'body{font-family:Arial,sans-serif;font-size:11px;color:#000;padding:10px;}'
+    + 'table{width:100%;border-collapse:collapse;margin:4px 0;}'
+    + 'th,td{border:1px solid #ddd;padding:4px 7px;}'
+    + 'th{background:#f0f0f0;font-weight:700;}'
+    + '.card{border:1px solid #ddd;border-radius:5px;margin-bottom:10px;overflow:hidden;page-break-inside:avoid;}'
+    + 'h2{font-size:14px;margin:0;}'
+    + '@media print{button{display:none!important;} .card{page-break-inside:avoid;}}'
+    + '</style></head><body>'
+    + '<div style="text-align:center;margin-bottom:12px;">'
+    + '<h2>LEO CLUB &mdash; FULL SALES REPORT</h2>'
+    + '<div style="font-size:11px;color:#555;">Date: '+dateStr+' &nbsp;|&nbsp; Printed: '+nowStr()+(me?' &nbsp;|&nbsp; By: '+me.name:'')+'</div>'
+    + '</div>'
+    + rptEl.innerHTML
+    + '</body></html>';
+  var w = window.open('','_blank','width=900,height=700');
+  if (!w) { toast('Allow popups to print', true); return; }
+  w.document.write(printHtml);
+  w.document.close();
+  setTimeout(function(){ w.print(); setTimeout(function(){ w.close(); }, 3000); }, 500);
 }
 
 </script>

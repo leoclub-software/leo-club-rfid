@@ -4328,14 +4328,21 @@ function txnInMonth(t, dateStr) {
 }
 
 function getPaymentLabel(t) {
+  // Explicit payMethod always wins
   if (t.payMethod === 'upi')  return 'UPI';
   if (t.payMethod === 'cash') return 'Cash';
   if (t.payMethod === 'rfid') return 'RFID';
+  // Desc-based detection
   const d = (t.desc||'').toLowerCase();
   if (d.includes('[upi]') || d.includes('upi')) return 'UPI';
   if (d.includes('[cash]') || d.includes('cash')) return 'Cash';
+  // Counter-based fallback
   if (t.type === 'debit' && t.counter !== 'Reception') return 'RFID';
-  if (t.type === 'credit' && t.counter === 'Reception') return 'Cash';
+  // Reception credits: only label if amount > 0 (ignore ₹0 activations)
+  if (t.type === 'credit' && t.counter === 'Reception') {
+    if ((t.cashAmt||0) === 0) return 'None'; // card activation, no money
+    return 'Cash'; // old records without payMethod stored = assume cash
+  }
   return 'RFID';
 }
 
@@ -4345,7 +4352,8 @@ function buildCounterSummary(filteredTxns) {
   const counters = [...COUNTER_ORDER.filter(c=>allCounters.includes(c)), ...allCounters.filter(c=>!COUNTER_ORDER.includes(c)&&c!=='Reception')];
   let totalCash=0, totalUpi=0, totalRfid=0, grandTotal=0;
   const rows = counters.map(c=>{
-    const cTxns = filteredTxns.filter(t=>t.counter===c && t.type==='debit');
+    // Only real debit txns with amount > 0
+    const cTxns = filteredTxns.filter(t=>t.counter===c && t.type==='debit' && (t.cashAmt||0)+(t.bonusAmt||0)>0);
     if (!cTxns.length) return null;
     const rfid = cTxns.filter(t=>getPaymentLabel(t)==='RFID').reduce((s,t)=>s+(t.cashAmt||0)+(t.bonusAmt||0),0);
     const cash = cTxns.filter(t=>getPaymentLabel(t)==='Cash').reduce((s,t)=>s+(t.cashAmt||0),0);
@@ -4354,8 +4362,9 @@ function buildCounterSummary(filteredTxns) {
     totalCash+=cash; totalUpi+=upi; totalRfid+=rfid; grandTotal+=total;
     return {counter:c, rfid, cash, upi, total, count:cTxns.length};
   }).filter(Boolean);
-  const rcpTxns = filteredTxns.filter(t=>t.counter==='Reception'&&t.type==='credit');
-  const rechargeCash = rcpTxns.filter(t=>getPaymentLabel(t)!=='UPI').reduce((s,t)=>s+(t.cashAmt||0),0);
+  // Reception: only credit txns with amount > 0 (exclude ₹0 card activations)
+  const rcpTxns = filteredTxns.filter(t=>t.counter==='Reception'&&t.type==='credit'&&(t.cashAmt||0)>0);
+  const rechargeCash = rcpTxns.filter(t=>getPaymentLabel(t)==='Cash').reduce((s,t)=>s+(t.cashAmt||0),0);
   const rechargeUpi  = rcpTxns.filter(t=>getPaymentLabel(t)==='UPI').reduce((s,t)=>s+(t.cashAmt||0),0);
   const rechargeTotal = rechargeCash + rechargeUpi;
   const newCards = rcpTxns.filter(t=>(t.desc||'').toLowerCase().includes('activ')).length;
@@ -4433,6 +4442,8 @@ function renderReport() {
   // ── Per-counter grouped sections ──────────────────────────────
   orderedCounters.forEach(function(ctr) {
     var ctrTxns = allFiltered.filter(function(t){return t.counter===ctr;});
+    // For payment grouping exclude ₹0 entries (card activations etc)
+    var ctrTxnsMoney = ctrTxns.filter(function(t){return (t.cashAmt||0)+(t.bonusAmt||0)>0;});
     if (!ctrTxns.length) return;
 
     // Counter icon
@@ -4440,10 +4451,10 @@ function renderReport() {
              : ctr==='Mini Theatre'?'&#127916;':ctr==='Courts'?'&#127934;':'&#127974;';
 
     // Payment split for this counter
-    var cRfid = ctrTxns.filter(function(t){return getPaymentLabel(t)==='RFID';}).reduce(function(s,t){return s+(t.cashAmt||0)+(t.bonusAmt||0);},0);
-    var cCash = ctrTxns.filter(function(t){return getPaymentLabel(t)==='Cash';}).reduce(function(s,t){return s+(t.cashAmt||0);},0);
-    var cUpi  = ctrTxns.filter(function(t){return getPaymentLabel(t)==='UPI'; }).reduce(function(s,t){return s+(t.cashAmt||0);},0);
-    var cTot  = ctrTxns.reduce(function(s,t){return s+(t.cashAmt||0)+(t.bonusAmt||0);},0);
+    var cRfid = ctrTxnsMoney.filter(function(t){return getPaymentLabel(t)==='RFID';}).reduce(function(s,t){return s+(t.cashAmt||0)+(t.bonusAmt||0);},0);
+    var cCash = ctrTxnsMoney.filter(function(t){return getPaymentLabel(t)==='Cash';}).reduce(function(s,t){return s+(t.cashAmt||0);},0);
+    var cUpi  = ctrTxnsMoney.filter(function(t){return getPaymentLabel(t)==='UPI'; }).reduce(function(s,t){return s+(t.cashAmt||0);},0);
+    var cTot  = cRfid + cCash + cUpi;
 
     // Payment groups for this counter (respect payFilter)
     var payGroups = payFilter==='all'
@@ -4452,7 +4463,9 @@ function renderReport() {
 
     var groupSections = '';
     payGroups.forEach(function(pm) {
-      var pmTxns = ctrTxns.filter(function(t){return getPaymentLabel(t)===pm;});
+      var pmTxns = ctrTxnsMoney.filter(function(t){
+        return getPaymentLabel(t)===pm && ((t.cashAmt||0)+(t.bonusAmt||0))>0;
+      });
       if (!pmTxns.length) return;
       var pmTotal = pmTxns.reduce(function(s,t){return s+(t.cashAmt||0)+(t.bonusAmt||0);},0);
       var pmIcon  = pm==='UPI'?'&#128241;':pm==='Cash'?'&#128181;':'&#128251;';

@@ -4369,9 +4369,10 @@ function buildCounterSummary(filteredTxns) {
   const rechargeTotal = rechargeCash + rechargeUpi;
   const newCards = rcpTxns.filter(t=>(t.desc||'').toLowerCase().includes('activ')).length;
   const checkouts = filteredTxns.filter(t=>t.counter==='Reception'&&(t.desc||'').toLowerCase().includes('checkout')).length;
-  const walkinTxns = filteredTxns.filter(t=>t.type==='debit'&&(getPaymentLabel(t)==='Cash'||getPaymentLabel(t)==='UPI'));
-  const walkinCash = walkinTxns.filter(t=>getPaymentLabel(t)==='Cash').reduce((s,t)=>s+(t.cashAmt||0),0);
-  const walkinUpi  = walkinTxns.filter(t=>getPaymentLabel(t)==='UPI').reduce((s,t)=>s+(t.cashAmt||0),0);
+  // walkinCash/UPI = direct counter sales (same as totalCash/UPI from counter rows)
+  // These are NOT separate from totalCash — they ARE totalCash
+  const walkinCash = totalCash;
+  const walkinUpi  = totalUpi;
   const walletLoaded = rechargeTotal;
   const walletSpent  = filteredTxns.filter(t=>t.type==='debit'&&getPaymentLabel(t)==='RFID').reduce((s,t)=>s+(t.cashAmt||0)+(t.bonusAmt||0),0);
   const totalCardCash  = cards.filter(c=>c.cashBalance>0).reduce((s,c)=>s+(c.cashBalance||0),0);
@@ -4531,10 +4532,10 @@ function renderReport() {
     +'<div style="font-family:monospace;font-size:1.2rem;font-weight:900;color:#7c3aed;">'+f2(D.totalRfid)+'</div></div>'
     +'<div style="text-align:center;padding:8px 14px;background:var(--bg);border-radius:8px;border:1.5px solid var(--border);">'
     +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;">&#128181; CASH</div>'
-    +'<div style="font-family:monospace;font-size:1.2rem;font-weight:900;color:var(--cy);">'+f2(D.totalCash+D.walkinCash)+'</div></div>'
+    +'<div style="font-family:monospace;font-size:1.2rem;font-weight:900;color:var(--cy);">'+f2(D.totalCash)+'</div></div>'
     +'<div style="text-align:center;padding:8px 14px;background:var(--bg);border-radius:8px;border:1.5px solid var(--border);">'
     +'<div style="font-size:0.65rem;color:var(--mu);font-weight:700;">&#128241; UPI</div>'
-    +'<div style="font-family:monospace;font-size:1.2rem;font-weight:900;color:#d97706;">'+f2(D.totalUpi+D.walkinUpi)+'</div></div>'
+    +'<div style="font-family:monospace;font-size:1.2rem;font-weight:900;color:#d97706;">'+f2(D.totalUpi)+'</div></div>'
     +'<div style="text-align:center;padding:8px 14px;">'
     +'<button class="btn btn-cy btn-sm" onclick="printFullReport()" style="font-size:0.78rem;">&#128424; Print Full Report</button>'
     +'</div>'
@@ -7321,11 +7322,11 @@ function renderTodaysSales() {
     +'<div style="font-family:monospace;font-size:1.1rem;font-weight:800;color:'+color+';">'+val+'</div>'
     +'</div>';
   kpiEl.innerHTML =
-    kpi('TOTAL', f(D.grandTotal), 'var(--gr)', '&#127942;') +
+    kpi('COUNTER SALES', f(D.grandTotal), 'var(--gr)', '&#127942;') +
     kpi('RFID', f(D.totalRfid), '#7c3aed', '&#128251;') +
-    kpi('CASH', f(D.reconcileCash), 'var(--cy)', '&#128181;') +
-    kpi('UPI', f(D.reconcileUpi), 'var(--go)', '&#128241;') +
-    kpi('RECHARGE', f(D.rechargeTotal), 'var(--cy)', '&#128260;') +
+    kpi('CASH SALES', f(D.totalCash), 'var(--cy)', '&#128181;') +
+    kpi('UPI SALES', f(D.totalUpi), 'var(--go)', '&#128241;') +
+    kpi('RECHARGE', f(D.rechargeTotal), '#2563eb', '&#128260;') +
     kpi('TXN COUNT', D.rows.reduce((s,r)=>s+r.count,0)+' txns', 'var(--tx)', '&#128202;');
 }
 

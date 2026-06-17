@@ -7943,13 +7943,6 @@ function epsonPrintBill(billData, fallbackHtml) {
     windowPrintFallback(fallbackHtml);
     return;
   }
-  var w = window.open('', '_blank', 'width=340,height=520');
-  if (w) {
-    w.document.write('<html><body style="font-family:sans-serif;text-align:center;padding:40px 20px;">'
-      + '<div style="font-size:15px;color:#444;">Sending to printer&hellip;</div>'
-      + '<div style="font-size:12px;color:#999;margin-top:8px;">This window will print automatically.</div>'
-      + '</body></html>');
-  }
   var soap = buildEposSoap(billData);
   var url  = 'http://' + _printerIp + '/cgi-bin/epos/service.cgi?devid='
              + encodeURIComponent(_printerDevice) + '&timeout=10000';
@@ -7963,34 +7956,46 @@ function epsonPrintBill(billData, fallbackHtml) {
     if (r.ok) {
       toast('Bill #' + String(billData.orderNo).padStart(3,'0') + ' sent to printer &#10003;');
       clearBill();
-      if (w && !w.closed) w.close();
     } else {
       throw new Error('HTTP ' + r.status);
     }
   })
   .catch(function(err) {
     toast('Printer not reachable (' + err.message + ') — opening print dialog', true);
-    if (w && !w.closed) {
-      // Reuse the already-open window instead of opening a new one
-      w.document.open();
-      w.document.write(fallbackHtml);
-      w.document.close();
-      setTimeout(function() { w.print(); setTimeout(function() { w.close(); }, 2000); }, 300);
-    } else {
-      windowPrintFallback(fallbackHtml);
-    }
+    windowPrintFallback(fallbackHtml);
   });
 }
 
 function windowPrintFallback(htmlContent) {
-  var w = window.open('', '_blank', 'width=340,height=520');
-  if (!w) {
-    toast('Popup blocked — allow popups for this site in browser settings', true);
-    return;
+  // Use a hidden iframe instead of window.open() — far more reliable
+  // on Android Chrome/tablets, which treat window.open() as a new
+  // background tab rather than a real popup (causing silent failures
+  // or auto-closing tabs when .print() is called).
+  var iframe = document.getElementById('print-frame');
+  if (!iframe) {
+    iframe = document.createElement('iframe');
+    iframe.id = 'print-frame';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
   }
-  w.document.write(htmlContent);
-  w.document.close();
-  setTimeout(function() { w.print(); setTimeout(function() { w.close(); }, 2000); }, 350);
+  var doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(htmlContent);
+  doc.close();
+  // Give the iframe a moment to render before printing
+  setTimeout(function() {
+    try {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    } catch (e) {
+      toast('Print failed: ' + e.message, true);
+    }
+  }, 250);
 }
 
 function printTestReceipt() {

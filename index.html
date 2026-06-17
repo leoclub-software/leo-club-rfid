@@ -1328,8 +1328,8 @@ select option{background:#fff;color:var(--tx);}
             <button class="btn btn-gh btn-sm" style="flex:1;" onclick="printTestReceipt()">&#128424; Test Print</button>
           </div>
           <div id="printer-status" style="font-size:0.78rem;padding:8px 10px;border-radius:7px;background:var(--bg);color:var(--mu);">Not configured</div>
-          <div style="margin-top:10px;padding:10px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:0.73rem;color:#92400e;line-height:1.7;">
-            <b>Tablet tip:</b> If printing fails, your browser is blocking HTTP requests from the HTTPS site. Fix: go to your tablet browser settings and allow mixed content for this site, OR access the app via <b>http://</b> on your local WiFi. The app will always fall back to the browser print dialog if ePOS fails.
+          <div style="margin-top:10px;padding:10px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;font-size:0.73rem;color:#166534;line-height:1.7;">
+            <b>&#9989; HTTPS enabled:</b> Printer uses a self-signed SSL certificate, so the app connects via <b>https://</b> directly &mdash; no mixed-content blocking. If WiFi printing ever fails, USB connection above still works as backup.
           </div>
         </div>
         <!-- ── FOOD MENU (full editor) ───────────────────── -->
@@ -7848,7 +7848,7 @@ function setPrinterStatus(msg, ok) {
 function testPrinterConnection() {
   if (!_printerIp) { setPrinterStatus('Enter printer IP first', false); return; }
   setPrinterStatus('Connecting...', null);
-  fetch('http://' + _printerIp + '/cgi-bin/epos/service.cgi', { mode:'no-cors' })
+  fetch('https://' + _printerIp + '/cgi-bin/epos/service.cgi', { mode:'no-cors' })
     .then(function() { setPrinterStatus('Printer found on network (no-cors). Try test print to confirm. ✓', true); })
     .catch(function() { setPrinterStatus('Cannot reach printer — check IP and same WiFi', false); });
 }
@@ -7944,7 +7944,7 @@ function epsonPrintBill(billData, fallbackHtml) {
     return;
   }
   var soap = buildEposSoap(billData);
-  var url  = 'http://' + _printerIp + '/cgi-bin/epos/service.cgi?devid='
+  var url  = 'https://' + _printerIp + '/cgi-bin/epos/service.cgi?devid='
              + encodeURIComponent(_printerDevice) + '&timeout=10000';
   fetch(url, {
     method: 'POST',

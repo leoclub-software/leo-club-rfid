@@ -7917,9 +7917,21 @@ function buildEposSoap(billData) {
 }
 
 function epsonPrintBill(billData, fallbackHtml) {
+  // CRITICAL for tablets: window.open() must be called SYNCHRONOUSLY
+  // in direct response to the click — calling it later inside a fetch
+  // .then()/.catch() gets silently blocked on Safari/Chrome mobile,
+  // producing a blank/black popup. So we open it immediately here,
+  // before any network call, and fill it in afterward.
   if (!_printerIp) {
     windowPrintFallback(fallbackHtml);
     return;
+  }
+  var w = window.open('', '_blank', 'width=340,height=520');
+  if (w) {
+    w.document.write('<html><body style="font-family:sans-serif;text-align:center;padding:40px 20px;">'
+      + '<div style="font-size:15px;color:#444;">Sending to printer&hellip;</div>'
+      + '<div style="font-size:12px;color:#999;margin-top:8px;">This window will print automatically.</div>'
+      + '</body></html>');
   }
   var soap = buildEposSoap(billData);
   var url  = 'http://' + _printerIp + '/cgi-bin/epos/service.cgi?devid='
@@ -7934,19 +7946,31 @@ function epsonPrintBill(billData, fallbackHtml) {
     if (r.ok) {
       toast('Bill #' + String(billData.orderNo).padStart(3,'0') + ' sent to printer &#10003;');
       clearBill();
+      if (w && !w.closed) w.close();
     } else {
       throw new Error('HTTP ' + r.status);
     }
   })
   .catch(function(err) {
-    toast('ePOS failed (' + err.message + ') — opening print dialog', true);
-    windowPrintFallback(fallbackHtml);
+    toast('Printer not reachable (' + err.message + ') — opening print dialog', true);
+    if (w && !w.closed) {
+      // Reuse the already-open window instead of opening a new one
+      w.document.open();
+      w.document.write(fallbackHtml);
+      w.document.close();
+      setTimeout(function() { w.print(); setTimeout(function() { w.close(); }, 2000); }, 300);
+    } else {
+      windowPrintFallback(fallbackHtml);
+    }
   });
 }
 
 function windowPrintFallback(htmlContent) {
   var w = window.open('', '_blank', 'width=340,height=520');
-  if (!w) { toast('Allow popups to use print dialog', true); return; }
+  if (!w) {
+    toast('Popup blocked — allow popups for this site in browser settings', true);
+    return;
+  }
   w.document.write(htmlContent);
   w.document.close();
   setTimeout(function() { w.print(); setTimeout(function() { w.close(); }, 2000); }, 350);

@@ -1310,7 +1310,15 @@ select option{background:#fff;color:var(--tx);}
         <!-- Printer Settings -->
         <div class="card" style="padding:14px;margin-bottom:12px;">
           <div class="sl" style="margin-bottom:10px;">&#128424; Epson TM-m30 Printer</div>
-          <div style="font-size:0.78rem;color:var(--mu);margin-bottom:10px;">Tablet &amp; printer must be on the <b>same WiFi</b>. Find printer IP by holding Feed button on power-on to print status sheet.</div>
+
+          <!-- USB Connection (preferred for tablets with USB cable) -->
+          <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:12px;margin-bottom:14px;">
+            <div style="font-size:0.78rem;font-weight:800;color:#1e40af;margin-bottom:6px;">&#128268; USB Cable Connection (recommended for tablets)</div>
+            <div style="font-size:0.74rem;color:#1e40af;margin-bottom:10px;">Connect the printer to your tablet with the USB cable, then tap below. Your browser will show a device picker — select the Epson printer.</div>
+            <button class="btn btn-cy btn-sm btn-fw" onclick="connectUsbPrinter()" style="margin-bottom:0;">&#128268; Connect USB Printer</button>
+          </div>
+
+          <div style="font-size:0.78rem;color:var(--mu);margin-bottom:10px;">Or use WiFi: tablet &amp; printer must be on the <b>same WiFi</b>. Find printer IP by holding Feed button on power-on to print status sheet.</div>
           <label class="f" style="font-size:0.72rem;">Printer IP Address</label>
           <input type="text" id="printer-ip" placeholder="e.g. 192.168.1.100" style="margin-bottom:8px;" oninput="savePrinterSettings()">
           <label class="f" style="font-size:0.72rem;">Device Name (default: local_printer)</label>
@@ -7761,6 +7769,7 @@ function renderCourtPage() {
   }
   initUsers();
   loadPrinterSettings();
+  tryReconnectUsbPrinter();
   // Populate GZ001–GZ999 dropdown for issue card
   const sel = document.getElementById('r-card-select');
   if (sel) {
@@ -7917,6 +7926,14 @@ function buildEposSoap(billData) {
 }
 
 function epsonPrintBill(billData, fallbackHtml) {
+  // Priority 1: USB printer connected via WebUSB
+  if (_usbDevice && _usbEndpointOut) {
+    printViaUsb(billData).catch(function(err) {
+      toast('USB print failed (' + err.message + ') — opening print dialog', true);
+      windowPrintFallback(fallbackHtml);
+    });
+    return;
+  }
   // CRITICAL for tablets: window.open() must be called SYNCHRONOUSLY
   // in direct response to the click — calling it later inside a fetch
   // .then()/.catch() gets silently blocked on Safari/Chrome mobile,
@@ -8212,6 +8229,153 @@ function printFullReport() {
   w.document.write(printHtml);
   w.document.close();
   setTimeout(function(){ w.print(); setTimeout(function(){ w.close(); }, 3000); }, 500);
+}
+
+
+
+// ═══════════════════════════════════════════
+//  WEBUSB PRINTING (Epson TM-m30III via USB cable)
+// ═══════════════════════════════════════════
+var _usbDevice = null;
+var _usbEndpointOut = null;
+
+function isWebUSBSupported() {
+  return typeof navigator !== 'undefined' && !!navigator.usb;
+}
+
+// Must be called directly from a click/tap handler — browsers require
+// a user gesture to show the USB device picker.
+function connectUsbPrinter() {
+  if (!isWebUSBSupported()) {
+    toast('WebUSB not supported in this browser. Use Chrome on Android.', true);
+    return Promise.reject('no webusb');
+  }
+  return navigator.usb.requestDevice({
+    filters: [{ vendorId: 0x04B8 }] // Epson vendor ID
+  }).then(function(device) {
+    return device.open()
+      .then(function() {
+        if (device.configuration === null) {
+          return device.selectConfiguration(1);
+        }
+      })
+      .then(function() {
+        // Find the interface with an OUT endpoint (printer data interface)
+        var cfg = device.configuration;
+        var iface, ep;
+        for (var i = 0; i < cfg.interfaces.length; i++) {
+          var alt = cfg.interfaces[i].alternates[0];
+          var outEp = alt.endpoints.find(function(e){ return e.direction === 'out'; });
+          if (outEp) { iface = cfg.interfaces[i].interfaceNumber; ep = outEp.endpointNumber; break; }
+        }
+        if (iface === undefined) throw new Error('No OUT endpoint found on printer');
+        return device.claimInterface(iface).then(function() {
+          _usbDevice = device;
+          _usbEndpointOut = ep;
+          localStorage.setItem('lc5_printer_usb_connected', '1');
+          setPrinterStatus('USB printer connected: ' + (device.productName||'Epson') + ' ✓', true);
+          toast('Printer connected via USB ✓');
+        });
+      });
+  }).catch(function(err) {
+    setPrinterStatus('USB connection failed: ' + err.message, false);
+    toast('USB connect failed: ' + err.message, true);
+    throw err;
+  });
+}
+
+// Try to silently reconnect to a previously-paired USB printer (no picker dialog)
+function tryReconnectUsbPrinter() {
+  if (!isWebUSBSupported()) return Promise.resolve(false);
+  return navigator.usb.getDevices().then(function(devices) {
+    var dev = devices.find(function(d){ return d.vendorId === 0x04B8; });
+    if (!dev) return false;
+    return dev.open()
+      .then(function(){ if (dev.configuration === null) return dev.selectConfiguration(1); })
+      .then(function() {
+        var cfg = dev.configuration;
+        var iface, ep;
+        for (var i = 0; i < cfg.interfaces.length; i++) {
+          var alt = cfg.interfaces[i].alternates[0];
+          var outEp = alt.endpoints.find(function(e){ return e.direction === 'out'; });
+          if (outEp) { iface = cfg.interfaces[i].interfaceNumber; ep = outEp.endpointNumber; break; }
+        }
+        if (iface === undefined) return false;
+        return dev.claimInterface(iface).then(function() {
+          _usbDevice = dev; _usbEndpointOut = ep;
+          setPrinterStatus('USB printer reconnected ✓', true);
+          return true;
+        });
+      }).catch(function(){ return false; });
+  }).catch(function(){ return false; });
+}
+
+// Build raw ESC/POS bytes for a bill (used for USB printing)
+function buildEscPosBytes(billData) {
+  var W = 42;
+  function pad(l, r) {
+    var gap = W - l.length - r.length;
+    return l + (gap > 0 ? Array(gap+1).join(' ') : ' ') + r;
+  }
+  function cen(s) {
+    var p = Math.max(0, Math.floor((W - s.length) / 2));
+    return Array(p+1).join(' ') + s;
+  }
+  var D = Array(W+1).join('-');
+  var E = Array(W+1).join('=');
+  var lines = [];
+  lines.push(cen('LEO CLUB'));
+  lines.push(cen('The Fern Junagadh | Bowling Alley'));
+  lines.push(D);
+  lines.push(cen('ORDER # ' + String(billData.orderNo).padStart(3,'0')));
+  lines.push(D);
+  lines.push(pad('Date: ' + billData.date.substring(0,16), 'Ref: '+billData.ref));
+  if (billData.table) lines.push('Table: ' + billData.table + (billData.guest ? '  |  ' + billData.guest : ''));
+  lines.push('Payment: ' + billData.payLabel);
+  lines.push(D);
+  lines.push(pad('ITEM', 'QTY   AMOUNT'));
+  lines.push(D);
+  billData.items.forEach(function(item) {
+    var amt = 'x'+item.qty+'  Rs.'+Math.round(item.price*item.qty).toLocaleString('en-IN');
+    var name = item.name.substring(0, W - amt.length - 2);
+    lines.push(pad(name, amt));
+  });
+  lines.push(D);
+  if (billData.discAmt > 0) {
+    lines.push(pad('Subtotal', 'Rs.' + billData.rawTotal.toLocaleString('en-IN')));
+    lines.push(pad('Discount', '-Rs.' + billData.discAmt.toLocaleString('en-IN')));
+  }
+  lines.push(pad('TOTAL', 'Rs.' + billData.total.toLocaleString('en-IN')));
+  lines.push(E);
+  lines.push(cen('Thank you for visiting Leo Club!'));
+  lines.push(cen('The Fern, Junagadh'));
+  lines.push('');
+  lines.push('');
+
+  var text = lines.join('\n') + '\n';
+  var encoder = new TextEncoder();
+  var textBytes = encoder.encode(text);
+
+  // ESC/POS: initialize printer (ESC @), then text, then cut (GS V or partial cut)
+  var init = new Uint8Array([0x1B, 0x40]); // ESC @
+  var cut  = new Uint8Array([0x1D, 0x56, 0x41, 0x10]); // GS V A (feed + partial cut, common on TM-m30)
+
+  var combined = new Uint8Array(init.length + textBytes.length + cut.length);
+  combined.set(init, 0);
+  combined.set(textBytes, init.length);
+  combined.set(cut, init.length + textBytes.length);
+  return combined;
+}
+
+function printViaUsb(billData) {
+  if (!_usbDevice || !_usbEndpointOut) {
+    return Promise.reject(new Error('USB printer not connected'));
+  }
+  var bytes = buildEscPosBytes(billData);
+  return _usbDevice.transferOut(_usbEndpointOut, bytes).then(function() {
+    toast('Bill #' + String(billData.orderNo).padStart(3,'0') + ' sent to USB printer ✓');
+    clearBill();
+  });
 }
 
 </script>
